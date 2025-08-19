@@ -4,6 +4,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Form Input Toko</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -770,6 +773,35 @@
             font-size: 12px;
         }
 
+        /* Quick list export/import actions */
+        .quick-list-actions {
+            display: flex;
+            gap: 8px;
+            margin-top: 8px;
+            flex-wrap: wrap;
+			flex-direction: column;
+        }
+        .btn-export-toko {
+            background: linear-gradient(135deg, #6f42c1 0%, #5a32a3 100%);
+            color: #fff;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .btn-import-toko {
+            background: linear-gradient(135deg, #0d6efd 0%, #0b5ed7 100%);
+            color: #fff;
+            border: none;
+            padding: 8px 12px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
         /* Inline field warning (e.g., for duplicate No. SJ) */
         .field-warning {
             color: #dc3545;
@@ -1425,7 +1457,7 @@
             background: white;
             border: 1px solid #ddd;
             border-radius: 6px;
-            font-family: 'Courier New', monospace;
+            font-family: 'Roboto Mono', 'Courier New', monospace;
             font-size: 14px;
             line-height: 1.6;
             user-select: none;
@@ -1442,7 +1474,7 @@
             padding: 4px 8px;
             border: 1px solid #e1e5e9;
             border-radius: 4px;
-            font-family: 'Courier New', monospace;
+            font-family: 'Roboto Mono', 'Courier New', monospace;
             font-size: 14px;
             line-height: 1.2;
             cursor: move;
@@ -1488,7 +1520,7 @@
         /* Ensure kaca-data (index 6) aligns columns top-to-bottom without wrapping */
         #printModalOverlay .print-textarea-container .draggable-text-item[data-index="6"],
         #printModalOverlay .print-textarea-container .draggable-text-item[data-index="6"] .text-content {
-            font-family: 'Courier New', monospace !important;
+            font-family: 'Roboto Mono', 'Courier New', monospace !important;
             white-space: pre !important;
         }
 
@@ -2050,7 +2082,7 @@
             height: auto !important;
             min-height: auto !important;
             overflow: visible !important;
-            font-family: 'Courier New', monospace !important;
+            font-family: 'Roboto Mono', 'Courier New', monospace !important;
             background-color: #f8f9ff !important;
         }
 
@@ -2433,7 +2465,7 @@
             height: auto !important;
             min-height: auto !important;
             overflow: visible !important;
-            font-family: 'Courier New', monospace !important;
+            font-family: 'Roboto Mono', 'Courier New', monospace !important;
             background-color: #f8f9ff !important;
             border: 1px solid #e1e5e9 !important;
         }
@@ -3149,6 +3181,11 @@
                         <div class="quick-list-header">
                             <h4>📋 Daftar Toko Tersedia</h4>
                             <p>Klik pada toko untuk mengisi form otomatis</p>
+                            <div class="quick-list-actions">
+                                <button type="button" class="btn-export-toko" onclick="exportTokoListToJSON()" title="Export daftar toko ke file JSON">⬇️ Export Toko</button>
+                                <button type="button" class="btn-import-toko" onclick="document.getElementById('importTokoFileInput').click()" title="Import daftar toko dari file JSON">⬆️ Import Toko</button>
+                                <input type="file" id="importTokoFileInput" accept=".json" style="display:none" onchange="handleImportTokoListFile(event)">
+                            </div>
                         </div>
                         <div class="quick-toko-list" id="quickTokoList">
                             <!-- Daftar toko akan di-generate di sini -->
@@ -3186,6 +3223,14 @@
                                 <option value="16">16px - Sangat Besar</option>
                                 <option value="18">18px - Ekstra Besar</option>
                             </select>
+                             <label for="fontWeightControl" style="margin-left: 10px;">Ketebalan Teks:</label>
+                             <select id="fontWeightControl" onchange="changeFontWeight()">
+                                 <option value="300">Light</option>
+                                 <option value="400" selected>Normal</option>
+                                 <option value="500">Medium</option>
+                                 <option value="600">Semi Bold</option>
+                                 <option value="700">Bold</option>
+                             </select>
                         </div>
                     </div>
                     
@@ -3261,6 +3306,7 @@
             document.body.style.overflow = 'hidden';
             try {
                 loadFontSizePreference();
+                loadFontWeightPreference();
                 loadColumnSpacingFromStorage();
                 refreshPrintData();
                 // Small delay to allow DOM updates
@@ -4182,6 +4228,84 @@ No. Kendaraan: ${noKendaraan}
             quickTokoList.innerHTML = html;
         }
 
+        // Export daftar toko (databaseTokoLengkap) ke JSON yang bisa diunduh
+        function exportTokoListToJSON() {
+            try {
+                const data = Array.isArray(databaseTokoLengkap) ? databaseTokoLengkap : [];
+                const dataStr = JSON.stringify(data, null, 2);
+                const blob = new Blob([dataStr], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                const now = new Date();
+                const ts = now.toISOString().slice(0,19).replace(/[:T]/g,'-');
+                a.download = `daftar_toko_${ts}.json`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+            } catch (error) {
+                console.error('Gagal export daftar toko:', error);
+                alert('Gagal export daftar toko.');
+            }
+        }
+
+        // Import daftar toko dari file JSON
+        async function handleImportTokoListFile(event) {
+            try {
+                const file = event.target.files && event.target.files[0];
+                if (!file) return;
+                const text = await file.text();
+                let parsed;
+                try {
+                    parsed = JSON.parse(text);
+                } catch (e) {
+                    alert('File JSON tidak valid.');
+                    return;
+                }
+                if (!Array.isArray(parsed)) {
+                    alert('Format file tidak valid. Harus berupa array daftar toko.');
+                    return;
+                }
+                // Validasi minimal field
+                const sanitized = parsed.map(item => ({
+                    nama: String((item && (item.nama ?? item.Nama ?? item.name)) || '').trim(),
+                    alamat: String((item && (item.alamat ?? item.Alamat ?? item.address)) || '').trim()
+                })).filter(it => it.nama && it.alamat);
+                if (sanitized.length === 0) {
+                    alert('File tidak berisi data toko yang valid.');
+                    return;
+                }
+                // Gabungkan dengan data existing, hindari duplikat nama (case-insensitive)
+                const existingByLower = new Map(
+                    (Array.isArray(databaseTokoLengkap) ? databaseTokoLengkap : []).map(it => [String(it.nama || '').toLowerCase(), it])
+                );
+                sanitized.forEach(it => {
+                    const key = it.nama.toLowerCase();
+                    existingByLower.set(key, { nama: it.nama, alamat: it.alamat });
+                });
+                // Mutate the existing const array instead of reassigning
+                const merged = Array.from(existingByLower.values());
+                databaseTokoLengkap.splice(0, databaseTokoLengkap.length, ...merged);
+                // Persist ke localStorage
+                persistDatabaseTokoFromLengkap();
+                persistDatabaseTokoLengkapArray();
+                // Refresh UI jika tab daftar terbuka
+                const quickModal = document.getElementById('quickAddModalOverlay');
+                const quickListTab = document.getElementById('quickListTab');
+                if (quickModal && quickModal.style.display === 'flex' && quickListTab && quickListTab.classList.contains('active')) {
+                    generateQuickTokoList();
+                }
+                alert(`Import berhasil. Total toko: ${databaseTokoLengkap.length}`);
+                // Reset input untuk bisa import ulang
+                const input = document.getElementById('importTokoFileInput');
+                if (input) input.value = '';
+            } catch (error) {
+                console.error('Gagal import daftar toko:', error);
+                alert('Gagal import daftar toko. Pastikan file JSON valid.');
+            }
+        }
+
         // Fungsi untuk memilih toko dari quick list
         function selectQuickToko(namaToko, alamat) {
             const alamatField = document.getElementById('alamat');
@@ -4500,6 +4624,7 @@ No. Kendaraan: ${noKendaraan}
             
             // Load font size preference
             loadFontSizePreference();
+            loadFontWeightPreference();
             
             // Load column spacing preference
             loadColumnSpacingFromStorage();
@@ -4752,6 +4877,9 @@ No. Kendaraan: ${noKendaraan}
                 <html>
                 <head>
                     <meta charset="UTF-8">
+                    <link rel="preconnect" href="https://fonts.googleapis.com">
+                    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+                    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
                     <style>
                         @page {
                             size: A4 portrait;
@@ -4760,8 +4888,9 @@ No. Kendaraan: ${noKendaraan}
                         body {
                             margin: 0;
                             padding: 0;
-                            font-family: 'Courier New', monospace;
+                            font-family: 'Roboto Mono', 'Courier New', monospace;
                             font-size: ${currentFontSize}px;
+                            font-weight: ${currentFontWeight};
                             line-height: 1.2;
                             position: relative;
                             width: 794px;
@@ -4777,19 +4906,30 @@ No. Kendaraan: ${noKendaraan}
                             white-space: pre-wrap;
                             max-width: 500px;
                             font-size: ${currentFontSize}px;
+                            font-weight: ${currentFontWeight};
                         }
                         .print-header {
-                            font-weight: bold;
+                            font-weight: 700;
                         }
                         .print-total {
-                            font-weight: bold;
+                            font-weight: 700;
                             color: #000 !important; /* force black for TOTAL */
                             font-size: ${currentFontSize}px;
                         }
                         .print-kaca-data {
                             font-size: ${Math.max(currentFontSize - 2, 8)}px;
-                            max-width: 600px;
+                            /* Allow full-line columns without wrapping so TOTAL LBR can be far right */
+                            max-width: none;
+                            white-space: pre;
+                            overflow: visible;
+                            word-break: keep-all;
                         }
+                        .print-timestamp {
+                            font-weight: ${currentFontWeight};
+                        }
+        .print-timestamp {
+            font-weight: ${currentFontWeight};
+        }
                         @media print {
                             @page {
                                 size: A4 portrait;
@@ -4802,12 +4942,14 @@ No. Kendaraan: ${noKendaraan}
                                 height: 1123px;
                                 overflow: hidden;
                                 font-size: ${currentFontSize}px;
+                                font-weight: ${currentFontWeight};
                             }
                             .print-text-item {
                                 page-break-inside: avoid;
                                 page-break-before: avoid;
                                 page-break-after: avoid;
                                 font-size: ${currentFontSize}px;
+                                font-weight: ${currentFontWeight};
                             }
                             * {
                                 page-break-inside: avoid;
@@ -4835,10 +4977,32 @@ No. Kendaraan: ${noKendaraan}
             
             printWindow.document.close();
             
-            // Wait for content to load then print
+            // Wait for content and web fonts to load before printing
             printWindow.onload = function() {
-                printWindow.print();
-                printWindow.close();
+                try {
+                    const timeoutMs = 1500;
+                    let timedOut = false;
+                    const timeoutId = setTimeout(() => { timedOut = true; printWindow.print(); printWindow.close(); }, timeoutMs);
+                    const ready = (printWindow.document.fonts && printWindow.document.fonts.ready) ? printWindow.document.fonts.ready : Promise.resolve();
+                    ready.then(() => {
+                        if (!timedOut) {
+                            clearTimeout(timeoutId);
+                            // Slight delay ensures layout with loaded fonts
+                            setTimeout(() => { printWindow.print(); printWindow.close(); }, 50);
+                        }
+                    }).catch(() => {
+                        // Fallback if fonts API fails
+                        if (!timedOut) {
+                            clearTimeout(timeoutId);
+                            printWindow.print();
+                            printWindow.close();
+                        }
+                    });
+                } catch (_) {
+                    // Last resort
+                    printWindow.print();
+                    printWindow.close();
+                }
             };
         }
 
@@ -4862,6 +5026,7 @@ No. Kendaraan: ${noKendaraan}
         let dragStartTime = 0;
         let dragDistance = 0;
         let currentFontSize = 10; // Default font size for print
+        let currentFontWeight = 400; // Default font weight (Normal)
         let currentColumnSpacing = 12; // Default column spacing for kaca-data
         
         // Individual column spacing configuration
@@ -5483,6 +5648,68 @@ No. Kendaraan: ${noKendaraan}
                 console.log('💾 Font size preference saved to localStorage');
             } catch (error) {
                 console.error('❌ Error saving font size preference:', error);
+            }
+        }
+
+        // Function to change font weight (ketebalan teks) of print elements
+        function changeFontWeight() {
+            const fontWeightSelect = document.getElementById('fontWeightControl');
+            const newFontWeight = parseInt(fontWeightSelect.value);
+            currentFontWeight = newFontWeight;
+            
+            // Update font weight of all draggable text elements except special types overriding weight
+            const textElements = document.querySelectorAll('.draggable-text-item');
+            textElements.forEach(element => {
+                const type = element.dataset.type || '';
+                if (type === 'header' || type === 'total') {
+                    // keep bold for header/total
+                    element.style.fontWeight = '700';
+                } else {
+                    element.style.fontWeight = String(newFontWeight);
+                }
+            });
+            
+            console.log(`📝 Font weight changed to ${newFontWeight}`);
+            
+            // Save font weight preference to localStorage
+            try {
+                localStorage.setItem('printFontWeight', newFontWeight.toString());
+                console.log('💾 Font weight preference saved to localStorage');
+            } catch (error) {
+                console.error('❌ Error saving font weight preference:', error);
+            }
+        }
+
+        // Function to load saved font weight preference
+        function loadFontWeightPreference() {
+            try {
+                const saved = localStorage.getItem('printFontWeight');
+                if (saved) {
+                    const weight = parseInt(saved);
+                    currentFontWeight = weight;
+                    const select = document.getElementById('fontWeightControl');
+                    if (select) {
+                        select.value = String(weight);
+                    }
+                    // apply to existing elements if any
+                    const textElements = document.querySelectorAll('.draggable-text-item');
+                    textElements.forEach(element => {
+                        const type = element.dataset.type || '';
+                        if (type === 'header' || type === 'total') {
+                            element.style.fontWeight = '700';
+                        } else {
+                            element.style.fontWeight = String(weight);
+                        }
+                    });
+                    console.log(`📝 Loaded saved font weight: ${weight}`);
+                } else {
+                    // initialize control with default and apply
+                    const select = document.getElementById('fontWeightControl');
+                    if (select) select.value = String(currentFontWeight);
+                    changeFontWeight();
+                }
+            } catch (error) {
+                console.error('❌ Error loading font weight preference:', error);
             }
         }
 
@@ -6127,12 +6354,12 @@ No. Kendaraan: ${noKendaraan}
                 
                 // Add special styling for different types
                 if (element.type === 'header') {
-                    textDiv.style.fontWeight = 'bold';
+                    textDiv.style.fontWeight = '700';
                     textDiv.style.fontSize = '16px';
                     textDiv.style.color = '#333';
                     textDiv.style.backgroundColor = '#f8f9fa';
                 } else if (element.type === 'total') {
-                    textDiv.style.fontWeight = 'bold';
+                    textDiv.style.fontWeight = '700';
                     textDiv.style.color = '#28a745';
                     textDiv.style.borderColor = '#28a745';
                     textDiv.style.backgroundColor = '#f8fff9';
@@ -6142,7 +6369,7 @@ No. Kendaraan: ${noKendaraan}
                     textDiv.style.whiteSpace = 'pre-wrap';
                     textDiv.style.wordWrap = 'break-word';
                     textDiv.style.fontSize = '12px';
-                    textDiv.style.fontFamily = 'Courier New, monospace';
+                    textDiv.style.fontFamily = 'Roboto Mono, Courier New, monospace';
                     textDiv.style.backgroundColor = '#f8f9ff';
                     textDiv.style.padding = '8px 12px';
                     textDiv.style.lineHeight = '1.2';
@@ -6188,8 +6415,11 @@ No. Kendaraan: ${noKendaraan}
                      }
                 }
                 
-                // Apply current font size to all elements
+                // Apply current font size and weight to all elements (weight overridden for header/total)
                 textDiv.style.fontSize = currentFontSize + 'px';
+                if (element.type !== 'header' && element.type !== 'total') {
+                    textDiv.style.fontWeight = String(currentFontWeight);
+                }
                 
                 container.appendChild(textDiv);
             });
