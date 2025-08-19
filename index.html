@@ -2970,6 +2970,10 @@
                                         id="nomorSJ" 
                                         name="nomorSJ" 
                                         placeholder="No. SJ"
+                                        inputmode="numeric"
+                                        pattern="\\d{7}"
+                                        minlength="7"
+                                        maxlength="7"
                                         required
                                         aria-describedby="nomorSJWarning"
                                     >
@@ -6579,6 +6583,20 @@ No. Kendaraan: ${noKendaraan}
             if (!nomorSJInput) return;
 
             let nomorSJWarningTimer = null;
+            // Auto-fill default value when focusing No. SJ if empty
+            nomorSJInput.addEventListener('focus', function() {
+                if (!nomorSJInput.value || nomorSJInput.value.trim() === '') {
+                    // Prefill 7-digit default as requested (leading zeros allowed)
+                    nomorSJInput.value = '225';
+                    // Trigger input event so any bindings/validations refresh
+                    nomorSJInput.dispatchEvent(new Event('input', { bubbles: true }));
+                }
+            });
+            // Enforce numeric-only and 7 digits length on input
+            nomorSJInput.addEventListener('input', function() {
+                const digits = (nomorSJInput.value || '').replace(/\D+/g, '').slice(0, 7);
+                nomorSJInput.value = digits;
+            });
             function applyNomorSJWarningVisibility() {
                 const current = nomorSJInput.value.trim();
                 const isDuplicate = !!current && isNomorSJInLog(current);
