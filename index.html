@@ -6039,8 +6039,8 @@ No. Kendaraan: ${noKendaraan}
             const alamat = document.getElementById('alamat').value || 'Alamat Toko';
             const tanggal = document.getElementById('tanggal').value || 'Tanggal';
             const nomorSJ = document.getElementById('nomorSJ').value || 'No. SJ';
-            const supir = document.getElementById('supir').value || 'Nama Supir';
-            const noKendaraan = document.getElementById('noKendaraan').value || 'No. Kendaraan';
+            const supir = document.getElementById('supir').value || '';
+            const noKendaraan = document.getElementById('noKendaraan').value || '';
             
             // Get clean kaca data (no headers, no placeholders)
             const { cleanData: kacaData, totalLbrSum } = getCleanKacaData();
