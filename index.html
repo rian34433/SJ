@@ -3083,7 +3083,7 @@
                                 <td></td>
                                 <td></td>
                                 <td></td>
-                                <td class="total-lbr total-lbr-input grand-total">
+                                <td class="total-lbr grand-total">
                                     <input type="text" placeholder="0 LBR" class="grand-total-input" readonly>
                                 </td>
                             </tr>
@@ -3851,7 +3851,7 @@ No. Kendaraan: ${noKendaraan}
                     <td class="lbr-input">
                         <input type="text" placeholder="0 LBR" class="lbr" onchange="calculateTotalLbr(this)" oninput="calculateTotalLbr(this)">
                     </td>
-                    <td class="total-lbr total-lbr-input">
+                    <td class="total-lbr">
                         <input type="text" placeholder="0 LBR" class="total-lbr-input" readonly>
                     </td>
                 `;
@@ -3989,7 +3989,7 @@ No. Kendaraan: ${noKendaraan}
 
         // Fungsi untuk menghitung total keseluruhan
         function calculateGrandTotal() {
-            const totalInputs = document.querySelectorAll('.total-lbr-input:not(.grand-total-input)');
+            const totalInputs = document.querySelectorAll('input.total-lbr-input:not(.grand-total-input)');
             let grandTotal = 0;
             
             totalInputs.forEach(input => {
@@ -6210,7 +6210,7 @@ No. Kendaraan: ${noKendaraan}
                 const lbr = row.querySelector('.lbr')?.value || '';
                 
                 // Try multiple selectors for TOTAL LBR
-                let totalLbr = row.querySelector('.total-lbr-input')?.value || '';
+                let totalLbr = row.querySelector('input.total-lbr-input')?.value || '';
                 if (!totalLbr) {
                     const altSelectors = [
                         'input.total-lbr-input',
@@ -6226,6 +6226,18 @@ No. Kendaraan: ${noKendaraan}
                             totalLbr = altInput.value;
                             break;
                         }
+                    }
+                }
+
+                // Fallback: compute TOTAL LBR from BOX and LBR if empty
+                if (!totalLbr || !totalLbr.trim()) {
+                    const boxNumMatch = (box || '').trim().match(/^(\d+(?:\.\d+)?)/);
+                    const lbrNumMatch = (lbr || '').trim().match(/^(\d+(?:\.\d+)?)/);
+                    const boxNum = boxNumMatch ? parseFloat(boxNumMatch[1]) : 0;
+                    const lbrNum = lbrNumMatch ? parseFloat(lbrNumMatch[1]) : 0;
+                    const computed = boxNum * lbrNum;
+                    if (computed > 0) {
+                        totalLbr = String(Math.round(computed)) + ' LBR';
                     }
                 }
                 
@@ -6651,7 +6663,7 @@ No. Kendaraan: ${noKendaraan}
                 const lbr = row.querySelector('.lbr')?.value || '';
                 
                 // Try multiple selectors for TOTAL LBR
-                let totalLbr = row.querySelector('.total-lbr-input')?.value || '';
+                let totalLbr = row.querySelector('input.total-lbr-input')?.value || '';
                 if (!totalLbr) {
                     const altSelectors = [
                         'input.total-lbr-input',
@@ -6667,6 +6679,18 @@ No. Kendaraan: ${noKendaraan}
                             totalLbr = altInput.value;
                             break;
                         }
+                    }
+                }
+
+                // Fallback: compute TOTAL LBR from BOX and LBR if empty
+                if (!totalLbr || !totalLbr.trim()) {
+                    const boxNumMatch = (box || '').trim().match(/^(\d+(?:\.\d+)?)/);
+                    const lbrNumMatch = (lbr || '').trim().match(/^(\d+(?:\.\d+)?)/);
+                    const boxNum = boxNumMatch ? parseFloat(boxNumMatch[1]) : 0;
+                    const lbrNum = lbrNumMatch ? parseFloat(lbrNumMatch[1]) : 0;
+                    const computed = boxNum * lbrNum;
+                    if (computed > 0) {
+                        totalLbr = String(Math.round(computed)) + ' LBR';
                     }
                 }
                 
@@ -7012,7 +7036,7 @@ No. Kendaraan: ${noKendaraan}
                     <td class="lbr-input">
                         <input type="text" placeholder="0 LBR" class="lbr" onchange="calculateTotalLbr(this)" oninput="calculateTotalLbr(this)">
                     </td>
-                    <td class="total-lbr total-lbr-input">
+                    <td class="total-lbr">
                         <input type="text" placeholder="0 LBR" class="total-lbr-input" readonly>
                     </td>
                 `;
