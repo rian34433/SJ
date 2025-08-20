@@ -1345,7 +1345,7 @@
 
             .print-textarea-container {
                 width: 100%;
-                max-width: 794px;
+                max-width: 813px; /* F4 width */
                 height: auto;
                 min-height: 600px;
             }
@@ -1403,9 +1403,9 @@
                 linear-gradient(rgba(0,0,0,0.1) 1px, transparent 1px),
                 linear-gradient(90deg, rgba(0,0,0,0.1) 1px, transparent 1px);
             background-size: 20px 20px;
-            /* A4 dimensions */
-            width: 794px;
-            height: 1123px;
+            /* F4 dimensions */
+            width: 813px;
+            height: 1247px;
             margin: 0 auto;
             box-shadow: 0 4px 20px rgba(0, 0, 0, 0.1);
         }
@@ -1439,8 +1439,8 @@
             position: absolute;
             top: 0;
             left: 0;
-            width: 794px;
-            height: 1123px;
+            width: 813px; /* F4 width */
+            height: 1247px; /* F4 height */
             background-image: 
                 linear-gradient(rgba(0,0,0,0.05) 1px, transparent 1px),
                 linear-gradient(90deg, rgba(0,0,0,0.05) 1px, transparent 1px);
@@ -4531,10 +4531,10 @@ No. Kendaraan: ${noKendaraan}
             
             if (textElements.length === 0) return;
             
-            // A4 dimensions in pixels (matching container dimensions)
-            const a4Width = 794;
-            const a4Height = 1123;
-            const margin = 40; // 20px margin on each side
+            // F4 dimensions in pixels (matching container dimensions)
+            const a4Width = 813;
+            const a4Height = 1247;
+            const margin = 0; // 20px margin on each side
             
             // Calculate available space
             const maxWidth = a4Width - (margin * 2);
@@ -4548,7 +4548,7 @@ No. Kendaraan: ${noKendaraan}
                 const currentX = parseInt(element.style.left) || 20;
                 const currentY = parseInt(element.style.top) || 20;
                 
-                // Check if element is outside A4 bounds
+                // Check if element is outside F4 bounds
                 if (currentX < margin || currentX > maxWidth || currentY < margin || currentY > maxHeight) {
                     needsAdjustment = true;
                 }
@@ -4561,34 +4561,8 @@ No. Kendaraan: ${noKendaraan}
                 previousY = currentY;
             });
             
-            // Only adjust if really necessary
-            if (needsAdjustment) {
-                console.log('Layout adjustment needed - repositioning elements');
-                
-                // Adjust positions to fit on single A4 page with better spacing
-                textElements.forEach((element, index) => {
-                    const currentX = parseInt(element.style.left) || 20;
-                    
-                    // Ensure X position is within A4 bounds
-                    let newX = Math.max(margin, Math.min(currentX, maxWidth));
-                    
-                    // Use better spacing - minimum 60px between elements
-                    const minSpacing = 60;
-                    const newY = margin + (index * minSpacing);
-                    
-                    // Ensure Y position doesn't exceed A4 height
-                    const finalY = Math.min(newY, maxHeight);
-                    
-                    // Apply new positions
-                    element.style.left = newX + 'px';
-                    element.style.top = finalY + 'px';
-                });
-                
-                // Scroll to top to show the arranged layout
-                container.scrollTop = 0;
-            } else {
-                console.log('No layout adjustment needed - keeping current positions');
-            }
+            // Never auto-rearrange user positions; only log the state
+            console.log('No layout auto-adjustment applied; preserving user positions');
         }
 
         // Add event listeners for real-time column spacing updates
@@ -4645,27 +4619,13 @@ No. Kendaraan: ${noKendaraan}
                 addColumnSpacingEventListeners();
             }, 100);
             
-            // Smart position handling based on user preferences
-            if (!positionsLocked) {
-                if (Object.keys(savedPositions).length === 0) {
-                    // First time - apply default layout
-                    setTimeout(() => {
-                        adjustLayoutForSinglePage();
-                        initDragAndDropForElements();
-                    }, 100);
-                } else {
-                    // User has saved positions - preserve them with minimal adjustment
-                    setTimeout(() => {
-                        preserveUserPositions();
-                        initDragAndDropForElements();
-                    }, 100);
+            // Smart position handling: never auto-adjust; keep user positions as-is
+            setTimeout(() => {
+                if (Object.keys(savedPositions).length > 0) {
+                    preserveUserPositions();
                 }
-            } else {
-                // Positions are locked - no adjustments
-                setTimeout(() => {
-                    initDragAndDropForElements();
-                }, 100);
-            }
+                initDragAndDropForElements();
+            }, 100);
             
             // Restore lock button state
             const lockBtn = document.querySelector('.btn-lock-position');
@@ -4697,20 +4657,20 @@ No. Kendaraan: ${noKendaraan}
             
             if (textElements.length === 0) return;
             
-            // A4 dimensions in pixels (matching container dimensions)
-            const a4Width = 794;
-            const a4Height = 1123;
-            const margin = 40;
+            // F4 dimensions in pixels (matching container dimensions)
+            const a4Width = 813;
+            const a4Height = 1247;
+            const margin = 0;
             
             let needsAdjustment = false;
             let previousY = -1;
             
-            // Check if any element is beyond A4 boundaries or too close together
+            // Check if any element is beyond F4 boundaries or too close together
             textElements.forEach(element => {
                 const x = parseInt(element.style.left) || 0;
                 const y = parseInt(element.style.top) || 0;
                 
-                // Check if element is outside A4 bounds
+                // Check if element is outside F4 bounds
                 if (x < margin || x > (a4Width - margin) || y < margin || y > (a4Height - margin)) {
                     needsAdjustment = true;
                 }
@@ -4724,12 +4684,8 @@ No. Kendaraan: ${noKendaraan}
             });
             
             // If adjustment is needed, apply single page layout
-            if (needsAdjustment) {
-                console.log('Validation detected layout issues - applying adjustments');
-                adjustLayoutForSinglePage();
-            } else {
-                console.log('Validation passed - no adjustments needed');
-            }
+            // Do not auto-adjust; trust user-defined positions
+            console.log('Validation step skipped auto-adjustments; preserving user positions');
         }
 
         function debugPositions() {
@@ -4854,8 +4810,13 @@ No. Kendaraan: ${noKendaraan}
             // Create HTML with positioned text elements using exact positions
             let positionedHTML = '';
             positionedTexts.forEach((item, index) => {
-                // Use exact pixel positions from drag area
-                const style = `position: absolute; left: ${item.x}px; top: ${item.y}px;`;
+                // Clamp to F4 canvas to prevent overflow triggering blank extra page
+                const pageWidth = 813;
+                const pageHeight = 1247;
+                const approxTextHeight = Math.max(currentFontSize, 10) + 8; // include ~8px vertical padding
+                const safeX = Math.max(0, Math.min(item.x, pageWidth - 1));
+                const safeY = Math.max(0, Math.min(item.y, pageHeight - approxTextHeight));
+                const style = `position: absolute; left: ${safeX}px; top: ${safeY}px;`;
                 let className = 'print-text-item';
                 
                 // Add styling based on type
@@ -4874,8 +4835,8 @@ No. Kendaraan: ${noKendaraan}
                 // Debug: Log the exact position being used
                 console.log(`Print element ${index}:`, {
                     text: item.text.substring(0, 30) + '...',
-                    x: item.x,
-                    y: item.y,
+                    x: safeX,
+                    y: safeY,
                     style: style
                 });
             });
@@ -4890,22 +4851,32 @@ No. Kendaraan: ${noKendaraan}
                     <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500;600;700&display=swap" rel="stylesheet">
                     <style>
                         @page {
-                            size: A4 portrait;
+                            size: 215mm 330mm; /* F4 */
                             margin: 0;
                         }
-                        body {
+                        html, body {
                             margin: 0;
                             padding: 0;
                             font-family: 'Roboto Mono', 'Courier New', monospace;
                             font-size: ${currentFontSize}px;
                             font-weight: ${currentFontWeight};
                             line-height: 1.2;
-                            position: relative;
-                            width: 794px;
-                            height: 1123px;
-                            overflow: hidden;
                             background: white;
+                            overflow: hidden;
                         }
+                        html, body, * { box-sizing: border-box; }
+                        .page {
+                            position: fixed;
+                            top: 0;
+                            left: 0;
+                            width: 212mm;   /* more conservative to avoid overflow */
+                            height: 327mm;  /* more conservative to avoid overflow */
+                            overflow: clip;
+                            background: white;
+                            margin: 0;
+                            padding: 0;
+                        }
+                        .print-text-item { box-sizing: border-box; }
                         .print-text-item {
                             position: absolute;
                             background: transparent;
@@ -4940,17 +4911,25 @@ No. Kendaraan: ${noKendaraan}
         }
                         @media print {
                             @page {
-                                size: A4 portrait;
+                                size: 215mm 330mm; /* F4 */
                                 margin: 0;
                             }
-                            body { 
+                            html, body { 
                                 margin: 0; 
                                 padding: 0;
-                                width: 794px;
-                                height: 1123px;
                                 overflow: hidden;
                                 font-size: ${currentFontSize}px;
                                 font-weight: ${currentFontWeight};
+                            }
+                            .page {
+                                width: 212mm;
+                                height: 327mm;
+                                position: fixed;
+                                top: 0;
+                                left: 0;
+                                overflow: clip;
+                                margin: 0;
+                                padding: 0;
                             }
                             .print-text-item {
                                 page-break-inside: avoid;
@@ -4958,6 +4937,9 @@ No. Kendaraan: ${noKendaraan}
                                 page-break-after: avoid;
                                 font-size: ${currentFontSize}px;
                                 font-weight: ${currentFontWeight};
+                                /* Ensure no overflow from padding during print */
+                                padding: 0;
+                                max-width: 212mm;
                             }
                             * {
                                 page-break-inside: avoid;
@@ -4978,7 +4960,7 @@ No. Kendaraan: ${noKendaraan}
                     </style>
                 </head>
                 <body>
-                    ${positionedHTML}
+                    <div class="page">${positionedHTML}</div>
                 </body>
                 </html>
             `);
@@ -5027,8 +5009,8 @@ No. Kendaraan: ${noKendaraan}
         let dragOffsetY = 0;
         let currentDraggedElement = null;
         let selectedElement = null;
-        let gridEnabled = true;
-        let gridSize = 5; // Fine grid by default
+        let gridEnabled = false; // free movement (no grid)
+        let gridSize = 1; // 1px step for arrow keys
         let positionsLocked = false;
         let savedPositions = {};
         let dragStartTime = 0;
@@ -5285,9 +5267,9 @@ No. Kendaraan: ${noKendaraan}
             // Constrain to container boundaries with full page range
             const container = selectedElement.closest('.print-textarea-container');
             
-            // Use A4 dimensions for boundary calculation
-            const containerWidth = 794;  // A4 width in pixels
-            const containerHeight = 1123; // A4 height in pixels
+            // Use F4 dimensions for boundary calculation
+            const containerWidth = 813;  // F4 width in pixels
+            const containerHeight = 1247; // F4 height in pixels
             
             const maxX = containerWidth - selectedElement.offsetWidth;
             const maxY = containerHeight - selectedElement.offsetHeight;
@@ -5296,9 +5278,8 @@ No. Kendaraan: ${noKendaraan}
             newX = Math.max(0, Math.min(newX, maxX));
             newY = Math.max(0, Math.min(newY, maxY));
             
-            // Snap to grid
+            // Snap to grid within container only
             const snapped = snapToGrid(newX, newY);
-            
             selectedElement.style.left = snapped.x + 'px';
             selectedElement.style.top = snapped.y + 'px';
             
@@ -5411,17 +5392,18 @@ No. Kendaraan: ${noKendaraan}
             requestAnimationFrame(() => {
                 const container = currentDraggedElement.closest('.print-textarea-container');
                 const containerRect = container.getBoundingClientRect();
-                const newX = e.clientX - containerRect.left - dragOffsetX;
-                const newY = e.clientY - containerRect.top - dragOffsetY;
+                // Account for scroll so positions map to full F4 canvas
+                const newX = e.clientX - containerRect.left + container.scrollLeft - dragOffsetX;
+                const newY = e.clientY - containerRect.top + container.scrollTop - dragOffsetY;
                 
                 // Calculate drag distance for click detection
                 const deltaX = e.clientX - (containerRect.left + dragOffsetX);
                 const deltaY = e.clientY - (containerRect.top + dragOffsetY);
                 dragDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
                 
-                // Constrain to container boundaries
-                const maxX = containerRect.width - currentDraggedElement.offsetWidth;
-                const maxY = containerRect.height - currentDraggedElement.offsetHeight;
+                // Constrain to full F4 canvas boundaries
+                const maxX = container.scrollWidth - currentDraggedElement.offsetWidth;
+                const maxY = container.scrollHeight - currentDraggedElement.offsetHeight;
                 
                 const constrainedX = Math.max(0, Math.min(newX, maxX));
                 const constrainedY = Math.max(0, Math.min(newY, maxY));
@@ -5444,17 +5426,17 @@ No. Kendaraan: ${noKendaraan}
             const container = currentDraggedElement.closest('.print-textarea-container');
             const containerRect = container.getBoundingClientRect();
             
-            // Directly compute new position for touch to reduce lag/glitch
-            const newX = touch.clientX - containerRect.left - dragOffsetX;
-            const newY = touch.clientY - containerRect.top - dragOffsetY;
+            // Directly compute new position for touch; include scroll offsets
+            const newX = touch.clientX - containerRect.left + container.scrollLeft - dragOffsetX;
+            const newY = touch.clientY - containerRect.top + container.scrollTop - dragOffsetY;
             
             // Calculate drag distance for click detection
             const deltaX = touch.clientX - (containerRect.left + dragOffsetX);
             const deltaY = touch.clientY - (containerRect.top + dragOffsetY);
             dragDistance = Math.sqrt(deltaX * deltaX + deltaY * deltaY);
             
-            const maxX = containerRect.width - currentDraggedElement.offsetWidth;
-            const maxY = containerRect.height - currentDraggedElement.offsetHeight;
+            const maxX = container.scrollWidth - currentDraggedElement.offsetWidth;
+            const maxY = container.scrollHeight - currentDraggedElement.offsetHeight;
             const constrainedX = Math.max(0, Math.min(newX, maxX));
             const constrainedY = Math.max(0, Math.min(newY, maxY));
             const snapped = snapToGrid(constrainedX, constrainedY);
@@ -5601,9 +5583,9 @@ No. Kendaraan: ${noKendaraan}
             
             // Only adjust if positions are significantly problematic
             let needsAdjustment = false;
-            const a4Width = 794;
-            const a4Height = 1123;
-            const margin = 40;
+            const a4Width = 813; // F4
+            const a4Height = 1247; // F4
+            const margin = 0;
             
             Object.values(currentPositions).forEach(pos => {
                 if (pos.x < margin || pos.x > (a4Width - margin) || pos.y < margin || pos.y > (a4Height - margin)) {
