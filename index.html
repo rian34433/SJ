@@ -1517,11 +1517,10 @@
             background-color: #fff !important;
         }
 
-        /* Ensure kaca-data (index 6) aligns columns top-to-bottom without wrapping */
+        /* Ensure kaca-data (index 6) preserves newlines and wraps lines */
         #printModalOverlay .print-textarea-container .draggable-text-item[data-index="6"],
         #printModalOverlay .print-textarea-container .draggable-text-item[data-index="6"] .text-content {
-            font-family: 'Roboto Mono', 'Courier New', monospace !important;
-            white-space: pre !important;
+            white-space: pre-wrap !important;
         }
 
         /* Make left column narrower on desktop */
@@ -1928,6 +1927,26 @@
             box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
         }
 
+        /* Kaca-data fixed columns layout across fonts */
+        .kd-block { display: block; }
+        .kd-row { white-space: nowrap; line-height: 1.2; }
+        .kd-cell {
+            display: inline-block;
+            font-family: 'Roboto Mono', 'Courier New', monospace; /* measurement font for width */
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: clip;
+            vertical-align: top;
+        }
+        .kd-cell.left { text-align: left; }
+        .kd-cell.center { text-align: center; }
+        .kd-cell.right { text-align: right; }
+        .kd-text { display: inline; }
+
+        /* Ensure kaca-data container allows multi-line content */
+        .draggable-text-item[data-type="kaca-data"] { white-space: pre-wrap !important; align-items: stretch; }
+        .draggable-text-item[data-type="kaca-data"] .text-content { white-space: pre-wrap !important; display: block; }
+
         .print-kaca-data {
             font-size: 8px;
             max-width: 400px;
@@ -2082,7 +2101,6 @@
             height: auto !important;
             min-height: auto !important;
             overflow: visible !important;
-            font-family: 'Roboto Mono', 'Courier New', monospace !important;
             background-color: #f8f9ff !important;
         }
 
@@ -2465,7 +2483,6 @@
             height: auto !important;
             min-height: auto !important;
             overflow: visible !important;
-            font-family: 'Roboto Mono', 'Courier New', monospace !important;
             background-color: #f8f9ff !important;
             border: 1px solid #e1e5e9 !important;
         }
@@ -3239,6 +3256,14 @@
                                  <option value="600">Semi Bold</option>
                                  <option value="700">Bold</option>
                              </select>
+                             <label for="fontFamilyControl" style="margin-left: 10px;">Gaya Font:</label>
+                             <select id="fontFamilyControl" onchange="changeFontFamily()">
+                                 <option value="'Roboto Mono', 'Courier New', monospace" selected>Roboto Mono (Monospace)</option>
+                                 <option value="Arial, Helvetica, sans-serif">Arial (Sans)</option>
+                                 <option value="'Segoe UI', Tahoma, Geneva, Verdana, sans-serif">Segoe UI (Sans)</option>
+                                 <option value="'Times New Roman', Times, serif">Times New Roman (Serif)</option>
+                                 <option value="'Courier New', Courier, monospace">Courier New (Monospace)</option>
+                             </select>
                         </div>
                     </div>
                     
@@ -3315,6 +3340,7 @@
             try {
                 loadFontSizePreference();
                 loadFontWeightPreference();
+                loadFontFamilyPreference();
                 loadColumnSpacingFromStorage();
                 refreshPrintData();
                 // Small delay to allow DOM updates
@@ -4607,6 +4633,7 @@ No. Kendaraan: ${noKendaraan}
             // Load font size preference
             loadFontSizePreference();
             loadFontWeightPreference();
+            loadFontFamilyPreference();
             
             // Load column spacing preference
             loadColumnSpacingFromStorage();
@@ -4788,10 +4815,14 @@ No. Kendaraan: ${noKendaraan}
                     // Get exact pixel positions from the drag area
                     const x = parseInt(element.style.left) || 0;
                     const y = parseInt(element.style.top) || 0;
-                    const text = textContent.textContent;
                     const type = element.dataset.type || 'data';
+                    // Capture both raw text and the exact HTML preview for kaca-data
+                    const text = (type === 'kaca-data')
+                        ? (element.dataset.rawText || textContent.textContent)
+                        : textContent.textContent;
+                    const html = (type === 'kaca-data') ? textContent.innerHTML : null;
                     
-                    positionedTexts.push({ x, y, text, type });
+                    positionedTexts.push({ x, y, text, type, html });
                 }
             });
             
@@ -4830,7 +4861,13 @@ No. Kendaraan: ${noKendaraan}
                     className += ' print-timestamp';
                 }
                 
-                positionedHTML += `<div class="${className}" style="${style}">${item.text}</div>`;
+                if (item.type === 'kaca-data') {
+                    // Use the exact preview HTML for perfect column alignment; fallback to rebuild
+                    const kdHTML = item.html || buildKacaDataFixedColumnsHTML(item.text, currentFontFamily, currentFontSize);
+                    positionedHTML += `<div class="${className}" style="${style}">${kdHTML}</div>`;
+                } else {
+                    positionedHTML += `<div class="${className}" style="${style}">${item.text}</div>`;
+                }
                 
                 // Debug: Log the exact position being used
                 console.log(`Print element ${index}:`, {
@@ -4857,7 +4894,7 @@ No. Kendaraan: ${noKendaraan}
                         html, body {
                             margin: 0;
                             padding: 0;
-                            font-family: 'Roboto Mono', 'Courier New', monospace;
+                            font-family: ${currentFontFamily};
                             font-size: ${currentFontSize}px;
                             font-weight: ${currentFontWeight};
                             line-height: 1.2;
@@ -4883,7 +4920,8 @@ No. Kendaraan: ${noKendaraan}
                             padding: 4px 8px;
                             border: none;
                             white-space: pre-wrap;
-                            max-width: 500px;
+                            max-width: none;
+                            font-family: ${currentFontFamily};
                             font-size: ${currentFontSize}px;
                             font-weight: ${currentFontWeight};
                         }
@@ -4895,14 +4933,13 @@ No. Kendaraan: ${noKendaraan}
                             color: #000 !important; /* force black for TOTAL */
                             font-size: ${currentFontSize}px;
                         }
-                        .print-kaca-data {
-                            font-size: ${Math.max(currentFontSize - 2, 8)}px;
-                            /* Allow full-line columns without wrapping so TOTAL LBR can be far right */
-                            max-width: none;
-                            white-space: pre;
-                            overflow: visible;
-                            word-break: keep-all;
-                        }
+                        /* Mirror preview's fixed-columns layout exactly in print */
+                        .print-kaca-data { font-size: ${Math.max(currentFontSize - 2, 8)}px; max-width: 600px; width: auto; }
+                        .kd-block { display: block; }
+                        .kd-row { white-space: nowrap; line-height: 1.2; }
+                        .kd-cell { display:inline-block; font-family: 'Roboto Mono', 'Courier New', monospace; white-space: nowrap; overflow: hidden; text-overflow: clip; vertical-align: top; }
+                        .kd-cell.left{ text-align:left; } .kd-cell.center{ text-align:center; } .kd-cell.right{ text-align:right; }
+                        .kd-text{ display:inline; font-family:${currentFontFamily}; font-size:${currentFontSize}px; }
                         .print-timestamp {
                             font-weight: ${currentFontWeight};
                         }
@@ -4920,6 +4957,7 @@ No. Kendaraan: ${noKendaraan}
                                 overflow: hidden;
                                 font-size: ${currentFontSize}px;
                                 font-weight: ${currentFontWeight};
+                                font-family: ${currentFontFamily};
                             }
                             .page {
                                 width: 212mm;
@@ -4935,12 +4973,14 @@ No. Kendaraan: ${noKendaraan}
                                 page-break-inside: avoid;
                                 page-break-before: avoid;
                                 page-break-after: avoid;
+                                font-family: ${currentFontFamily};
                                 font-size: ${currentFontSize}px;
                                 font-weight: ${currentFontWeight};
                                 /* Ensure no overflow from padding during print */
                                 padding: 0;
                                 max-width: 212mm;
                             }
+                            .print-kaca-data { max-width: 600px !important; width: auto !important; }
                             * {
                                 page-break-inside: avoid;
                                 page-break-after: avoid;
@@ -5017,6 +5057,7 @@ No. Kendaraan: ${noKendaraan}
         let dragDistance = 0;
         let currentFontSize = 10; // Default font size for print
         let currentFontWeight = 400; // Default font weight (Normal)
+        let currentFontFamily = "'Roboto Mono', 'Courier New', monospace"; // Default font family
         let currentColumnSpacing = 12; // Default column spacing for kaca-data
         
         // Individual column spacing configuration
@@ -5641,6 +5682,56 @@ No. Kendaraan: ${noKendaraan}
             }
         }
 
+        // Function to change font family (gaya teks)
+        function changeFontFamily() {
+            const select = document.getElementById('fontFamilyControl');
+            if (!select) return;
+            const newFontFamily = select.value;
+            currentFontFamily = newFontFamily;
+
+            // Apply to all draggable elements, and rebuild kaca-data with fixed columns layout
+            const textElements = document.querySelectorAll('.draggable-text-item');
+            textElements.forEach(element => {
+                const type = element.dataset.type || '';
+                if (type === 'kaca-data' || element.dataset.index === '6') {
+                    element.style.fontFamily = newFontFamily;
+                    const content = element.querySelector('.text-content');
+                    if (content) {
+                        // Always use preserved raw text, not previously injected HTML/text
+                        const raw = element.dataset.rawText || content.textContent || '';
+                        content.innerHTML = buildKacaDataFixedColumnsHTML(raw, newFontFamily, currentFontSize);
+                    }
+                } else {
+                    element.style.fontFamily = newFontFamily;
+                }
+            });
+
+            try {
+                localStorage.setItem('printFontFamily', newFontFamily);
+            } catch (error) {
+                console.error('❌ Error saving font family preference:', error);
+            }
+        }
+
+        // Load saved font family preference
+        function loadFontFamilyPreference() {
+            try {
+                const saved = localStorage.getItem('printFontFamily');
+                const select = document.getElementById('fontFamilyControl');
+                if (saved && select) {
+                    currentFontFamily = saved;
+                    select.value = saved;
+                } else if (select) {
+                    select.value = currentFontFamily;
+                }
+
+                // Apply immediately to existing elements
+                changeFontFamily();
+            } catch (error) {
+                console.error('❌ Error loading font family preference:', error);
+            }
+        }
+
         // Function to change font weight (ketebalan teks) of print elements
         function changeFontWeight() {
             const fontWeightSelect = document.getElementById('fontWeightControl');
@@ -5761,6 +5852,74 @@ No. Kendaraan: ${noKendaraan}
             const leftPadding = Math.floor(totalPadding / 2);
             const rightPadding = totalPadding - leftPadding;
             return ' '.repeat(leftPadding) + clipped + ' '.repeat(rightPadding);
+        }
+
+        // Measure actual monospace character width in pixels for a given font size
+        function getMonospaceCharWidthPx(fontSizePx) {
+            try {
+                const probe = document.createElement('span');
+                probe.textContent = 'M';
+                probe.style.position = 'absolute';
+                probe.style.visibility = 'hidden';
+                probe.style.whiteSpace = 'pre';
+                probe.style.fontFamily = "'Roboto Mono', 'Courier New', monospace";
+                probe.style.fontSize = fontSizePx + 'px';
+                document.body.appendChild(probe);
+                const width = probe.getBoundingClientRect().width || probe.offsetWidth || Math.max(Math.round(fontSizePx * 0.6), 6);
+                probe.remove();
+                return width;
+            } catch (_) {
+                return Math.max(Math.round(fontSizePx * 0.6), 6);
+            }
+        }
+
+        // Build HTML for kaca-data with fixed columns that do not shift across fonts
+        function buildKacaDataFixedColumnsHTML(rawText, appliedFontFamily, fontSizePx) {
+            try {
+                // Normalize line breaks (Windows/Unix) and trailing spaces
+                const lines = (rawText || '').replace(/\r\n?/g, '\n').split('\n');
+                if (lines.length === 0) return '';
+
+                const widths = columnSpacingConfig; // per-character widths
+                const order = ['jenisKaca', 'pwd', 'noDo', 'ukuran', 'box', 'lbr', 'totalLbr'];
+                const alignRight = new Set(['box', 'lbr', 'totalLbr']);
+                const alignCenter = new Set(['ukuran']);
+
+                // precise monospace char width in px for measurement container
+                const charWidthPx = getMonospaceCharWidthPx(fontSizePx);
+
+                const rowsHTML = lines.map(line => {
+                    if (line.trim() === '') return '';
+                    const cells = [];
+                    let cursor = 0;
+                    order.forEach(key => {
+                        const span = widths[key] || 12;
+                        const slice = line.substring(cursor, cursor + span);
+                        cursor += span;
+                        const text = slice.trim();
+                        const alignClass = alignRight.has(key) ? 'right' : alignCenter.has(key) ? 'center' : 'left';
+                        const pxWidth = span * charWidthPx;
+                        cells.push(`<span class="kd-cell ${alignClass}" style="width:${pxWidth}px">` +
+                                   `<span class="kd-text" style="font-family:${appliedFontFamily}; font-size:${fontSizePx}px">${escapeHtml(text)}</span>` +
+                                   `</span>`);
+                    });
+                    return `<div class="kd-row">${cells.join('')}</div>`;
+                }).join('');
+
+                return `<div class="kd-block">${rowsHTML}</div>`;
+            } catch (e) {
+                console.error('buildKacaDataFixedColumnsHTML error', e);
+                return rawText;
+            }
+        }
+
+        function escapeHtml(str) {
+            return String(str)
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
         }
 
         // Function to reformat kaca-data text with new column spacing
@@ -6335,6 +6494,8 @@ No. Kendaraan: ${noKendaraan}
                 textDiv.style.top = Math.round(y) + 'px';
                 textDiv.dataset.index = index;
                 textDiv.dataset.type = element.type;
+                // Preserve raw text for reliable rebuilds (font change, print)
+                textDiv.dataset.rawText = element.text;
                 
                 // Debug: Log creation of kaca-data element (index 6)
                 if (index === 6) {
@@ -6368,10 +6529,11 @@ No. Kendaraan: ${noKendaraan}
                 } else if (element.type === 'kaca-data') {
                     textDiv.style.maxWidth = '600px';
                     textDiv.style.width = 'auto';
+                    // Preserve newlines and allow wrapping for immediate correct display
                     textDiv.style.whiteSpace = 'pre-wrap';
                     textDiv.style.wordWrap = 'break-word';
                     textDiv.style.fontSize = '12px';
-                    textDiv.style.fontFamily = 'Roboto Mono, Courier New, monospace';
+                    textDiv.style.fontFamily = currentFontFamily;
                     textDiv.style.backgroundColor = '#f8f9ff';
                     textDiv.style.padding = '8px 12px';
                     textDiv.style.lineHeight = '1.2';
@@ -6381,6 +6543,11 @@ No. Kendaraan: ${noKendaraan}
                     textDiv.style.borderRadius = '6px';
                     textDiv.style.boxShadow = '0 2px 8px rgba(102, 126, 234, 0.15)';
                     
+                    // Build fixed-columns HTML so column widths are stable across fonts
+                    const kdHtml = buildKacaDataFixedColumnsHTML(element.text, currentFontFamily, currentFontSize);
+                    const inner = textDiv.querySelector('.text-content');
+                    if (inner) inner.innerHTML = kdHtml;
+
                     // Debug: Log kaca-data element creation
                     console.log('🎯 Created kaca-data element with enhanced styling:', {
                         text: element.text.substring(0, 100) + '...',
@@ -6419,6 +6586,7 @@ No. Kendaraan: ${noKendaraan}
                 
                 // Apply current font size and weight to all elements (weight overridden for header/total)
                 textDiv.style.fontSize = currentFontSize + 'px';
+                textDiv.style.fontFamily = currentFontFamily;
                 if (element.type !== 'header' && element.type !== 'total') {
                     textDiv.style.fontWeight = String(currentFontWeight);
                 }
