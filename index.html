@@ -3380,18 +3380,16 @@
                     map = saved;
                 }
             } catch (_) {}
-            if (typeof databaseTokoLengkap !== 'undefined') {
-                const defaults = buildTokoMapFromArray(databaseTokoLengkap);
-                // Prioritaskan data tersimpan; gabungkan default untuk melengkapi
-                map = Object.assign(defaults, map);
-            }
+            // Hanya gunakan data dari localStorage tanpa default bawaan
             return map;
         }
 
+        // Tidak lagi memaksa sync dari seed; gunakan localStorage saja
         function persistDatabaseTokoFromLengkap() {
-            if (typeof databaseTokoLengkap === 'undefined') return;
-            const map = buildTokoMapFromArray(databaseTokoLengkap);
-            try { localStorage.setItem('databaseToko', JSON.stringify(map)); } catch (_) {}
+            try {
+                const map = buildTokoMapFromArray(databaseTokoLengkap);
+                localStorage.setItem('databaseToko', JSON.stringify(map));
+            } catch (_) {}
         }
 
         // Fungsi untuk mengisi alamat otomatis berdasarkan nama toko
@@ -3408,14 +3406,11 @@
                 hideAutocomplete();
             }
             
-            // Auto-fill alamat jika ada yang cocok
-            const match = Array.isArray(databaseTokoLengkap)
-                ? databaseTokoLengkap.find(t => (t.nama || '').toLowerCase() === namaTokoLower)
-                : null;
-            if (match) {
-                // Samakan casing nama pada input sesuai data tersimpan
-                try { this.value = match.nama || this.value; } catch (_) {}
-                alamatField.value = (match.alamat || '');
+            // Auto-fill alamat berdasarkan data dari localStorage (map nama->alamat)
+            const map = getDatabaseToko();
+            const addressFromMap = map[namaTokoLower];
+            if (addressFromMap) {
+                alamatField.value = addressFromMap;
                 alamatField.style.backgroundColor = '#f8f9fa';
                 autoResizeTextarea(alamatField);
             } else {
@@ -3482,47 +3477,16 @@ No. Kendaraan: ${noKendaraan}
         // Set tanggal default ke hari ini
         document.getElementById('tanggal').valueAsDate = new Date();
 
-        // Database toko yang lebih lengkap
-        const databaseTokoLengkap = [
-            {
-                nama: 'Toko Sejahtera',
-                alamat: 'Jl. Raya Utama No. 123\nKecamatan Central\nKota Metropolitan, Provinsi Jawa Barat\nKode Pos: 12345'
-            },
-            {
-                nama: 'Toko Makmur',
-                alamat: 'Jl. Pasar Baru No. 45\nKecamatan Business District\nKota Metropolitan, Provinsi Jawa Barat\nKode Pos: 12346'
-            },
-            {
-                nama: 'Toko Sukses',
-                alamat: 'Jl. Industri No. 67\nKecamatan Industrial Area\nKota Metropolitan, Provinsi Jawa Barat\nKode Pos: 12347'
-            },
-            {
-                nama: 'Toko Jaya',
-                alamat: 'Jl. Komersial No. 89\nKecamatan Commercial Zone\nKota Metropolitan, Provinsi Jawa Barat\nKode Pos: 12348'
-            },
-            {
-                nama: 'Toko Berkah',
-                alamat: 'Jl. Harmoni No. 12\nKecamatan Harmony\nKota Metropolitan, Provinsi Jawa Barat\nKode Pos: 12349'
-            },
-            {
-                nama: 'Toko Indah',
-                alamat: 'Jl. Cendana No. 34\nKecamatan Beautiful\nKota Metropolitan, Provinsi Jawa Barat\nKode Pos: 12350'
-            },
-            {
-                nama: 'Toko Maju',
-                alamat: 'Jl. Progresif No. 56\nKecamatan Progressive\nKota Metropolitan, Provinsi Jawa Barat\nKode Pos: 12351'
-            },
-            {
-                nama: 'Toko Sentosa',
-                alamat: 'Jl. Damai No. 78\nKecamatan Peaceful\nKota Metropolitan, Provinsi Jawa Barat\nKode Pos: 12352'
-            }
-        ];
+        // Database toko lengkap dikelola via localStorage (tanpa seed bawaan)
+        const databaseTokoLengkap = [];
         // Load dari localStorage bila ada data tersimpan untuk daftar lengkap
         (function loadDatabaseTokoLengkapFromStorage(){
             try {
                 const saved = JSON.parse(localStorage.getItem('databaseTokoLengkap') || 'null');
                 if (Array.isArray(saved) && saved.length > 0) {
                     databaseTokoLengkap.splice(0, databaseTokoLengkap.length, ...saved);
+                    // Sinkronkan map autocomplete dari data yang di-load agar tanpa default bawaan
+                    try { persistDatabaseTokoFromLengkap(); } catch (_) {}
                 }
             } catch (_) {}
         })();
@@ -3530,31 +3494,35 @@ No. Kendaraan: ${noKendaraan}
         function persistDatabaseTokoLengkapArray() {
             try { localStorage.setItem('databaseTokoLengkap', JSON.stringify(databaseTokoLengkap)); } catch (_) {}
         }
-        // Inisialisasi database autocomplete tersimpan pada load pertama
-        if (!localStorage.getItem('databaseToko')) {
-            persistDatabaseTokoFromLengkap();
-        }
+        // Hapus inisialisasi otomatis dari seed; hanya gunakan data localStorage yang ada
 
         // Fungsi untuk menampilkan popup daftar toko
         function showTokoList() {
             const popup = document.getElementById('popupOverlay');
             const tokoList = document.getElementById('tokoList');
             
-            // Generate daftar toko
+            // Generate daftar toko dari array yang tersimpan (di-load dari localStorage)
             tokoList.innerHTML = '';
-            databaseTokoLengkap.forEach((toko, index) => {
-                const tokoItem = document.createElement('div');
-                tokoItem.className = 'toko-item';
-                tokoItem.innerHTML = `
-                    <div class="toko-nama">🏪 ${toko.nama}</div>
-                    <div class="toko-alamat">📍 ${toko.alamat}</div>
-                    <div class="action-buttons">
-                        <button class="btn-edit" onclick="editToko(${index})">✏️ Edit</button>
-                        <button class="btn-delete" onclick="deleteToko(${index})">🗑️ Hapus</button>
-                    </div>
-                `;
-                tokoList.appendChild(tokoItem);
-            });
+            if (!Array.isArray(databaseTokoLengkap) || databaseTokoLengkap.length === 0) {
+                const empty = document.createElement('div');
+                empty.className = 'no-results';
+                empty.textContent = 'Belum ada toko yang tersedia';
+                tokoList.appendChild(empty);
+            } else {
+                databaseTokoLengkap.forEach((toko, index) => {
+                    const tokoItem = document.createElement('div');
+                    tokoItem.className = 'toko-item';
+                    tokoItem.innerHTML = `
+                        <div class="toko-nama">🏪 ${toko.nama}</div>
+                        <div class="toko-alamat">📍 ${toko.alamat}</div>
+                        <div class="action-buttons">
+                            <button class="btn-edit" onclick="editToko(${index})">✏️ Edit</button>
+                            <button class="btn-delete" onclick="deleteToko(${index})">🗑️ Hapus</button>
+                        </div>
+                    `;
+                    tokoList.appendChild(tokoItem);
+                });
+            }
             
             popup.style.display = 'flex';
             document.body.style.overflow = 'hidden'; // Prevent scrolling
@@ -6441,16 +6409,14 @@ No. Kendaraan: ${noKendaraan}
             const cont = document.querySelector('.cont-input')?.value || '';
             const seal = document.querySelector('.seal-input')?.value || '';
             
-            // Format date
+            // Format date with uppercase month (for print modal)
             let formattedDate = 'Tanggal';
             if (tanggal) {
                 const date = new Date(tanggal);
-                const options = { 
-                    year: 'numeric', 
-                    month: 'long', 
-                    day: 'numeric' 
-                };
-                formattedDate = date.toLocaleDateString('id-ID', options);
+                const day = date.toLocaleDateString('id-ID', { day: 'numeric' });
+                const monthUpper = date.toLocaleDateString('id-ID', { month: 'long' }).toUpperCase();
+                const year = date.toLocaleDateString('id-ID', { year: 'numeric' });
+                formattedDate = `${day} ${monthUpper} ${year}`;
             }
             
             // Create individual draggable text elements
