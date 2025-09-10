@@ -42,6 +42,30 @@
             font-size: 24px;
             font-weight: 600;
         }
+        
+        .header-controls {
+            position: absolute;
+            top: 5px;
+            right: 15px;
+            display: flex;
+            gap: 8px;
+        }
+        
+        .header-btn {
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: white;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            transition: all 0.2s ease;
+        }
+        
+        .header-btn:hover {
+            background: rgba(255, 255, 255, 0.3);
+            border-color: rgba(255, 255, 255, 0.5);
+        }
 
         .form-container {
             padding: 30px;
@@ -2914,6 +2938,11 @@
     <div class="container">
         <div class="header">
             <h1>SURAT JALAN</h1>
+            <div class="header-controls">
+                <button id="backupBtn" class="header-btn" title="Backup Data">💾 Backup</button>
+                <button id="restoreBtn" class="header-btn" title="Restore Data">📁 Restore</button>
+                <input type="file" id="restoreFile" accept=".json" style="display: none;">
+            </div>
         </div>
         
         <div class="form-container">
@@ -3375,20 +3404,20 @@
         function getDatabaseToko() {
             let map = {};
             try {
-                const saved = JSON.parse(localStorage.getItem('databaseToko') || 'null');
+                const saved = storageManager.load('databaseToko');
                 if (saved && typeof saved === 'object') {
                     map = saved;
                 }
             } catch (_) {}
-            // Hanya gunakan data dari localStorage tanpa default bawaan
+            // Hanya gunakan data dari storage tanpa default bawaan
             return map;
         }
 
-        // Tidak lagi memaksa sync dari seed; gunakan localStorage saja
+        // Tidak lagi memaksa sync dari seed; gunakan storage manager
         function persistDatabaseTokoFromLengkap() {
             try {
                 const map = buildTokoMapFromArray(databaseTokoLengkap);
-                localStorage.setItem('databaseToko', JSON.stringify(map));
+                storageManager.save('databaseToko', map);
             } catch (_) {}
         }
 
@@ -3477,12 +3506,173 @@ No. Kendaraan: ${noKendaraan}
         // Set tanggal default ke hari ini
         document.getElementById('tanggal').valueAsDate = new Date();
 
+        // Enhanced storage manager with multiple fallback options
+        class StorageManager {
+            constructor() {
+                this.storageKey = 'sj_app_data';
+                this.fallbackData = {};
+            }
+            
+            // Try multiple storage methods in order of preference
+            save(key, data) {
+                try {
+                    // Method 1: localStorage (preferred)
+                    localStorage.setItem(key, JSON.stringify(data));
+                    console.log(`✅ Data saved to localStorage: ${key}`);
+                    return true;
+                } catch (e) {
+                    console.warn(`⚠️ localStorage failed for ${key}, trying alternatives...`);
+                    
+                    try {
+                        // Method 2: sessionStorage (fallback)
+                        sessionStorage.setItem(key, JSON.stringify(data));
+                        console.log(`✅ Data saved to sessionStorage: ${key}`);
+                        return true;
+                    } catch (e2) {
+                        console.warn(`⚠️ sessionStorage failed for ${key}, using memory fallback`);
+                        
+                        // Method 3: In-memory storage (last resort)
+                        this.fallbackData[key] = data;
+                        console.log(`✅ Data saved to memory fallback: ${key}`);
+                        return true;
+                    }
+                }
+            }
+            
+            load(key) {
+                try {
+                    // Method 1: localStorage
+                    const data = localStorage.getItem(key);
+                    if (data) {
+                        console.log(`✅ Data loaded from localStorage: ${key}`);
+                        return JSON.parse(data);
+                    }
+                } catch (e) {
+                    console.warn(`⚠️ localStorage read failed for ${key}`);
+                }
+                
+                try {
+                    // Method 2: sessionStorage
+                    const data = sessionStorage.getItem(key);
+                    if (data) {
+                        console.log(`✅ Data loaded from sessionStorage: ${key}`);
+                        return JSON.parse(data);
+                    }
+                } catch (e) {
+                    console.warn(`⚠️ sessionStorage read failed for ${key}`);
+                }
+                
+                // Method 3: In-memory fallback
+                if (this.fallbackData[key]) {
+                    console.log(`✅ Data loaded from memory fallback: ${key}`);
+                    return this.fallbackData[key];
+                }
+                
+                console.log(`ℹ️ No data found for key: ${key}`);
+                return null;
+            }
+            
+            // Export data for backup/download
+            exportData() {
+                const allData = {};
+                const keys = ['databaseToko', 'databaseTokoLengkap', 'printTextPositions', 
+                             'inputLogHistory', 'lastNomorSJ', 'printFontSize', 'printFontFamily', 
+                             'printFontWeight', 'printColumnSpacing', 'columnSpacingConfig'];
+                
+                keys.forEach(key => {
+                    const data = this.load(key);
+                    if (data !== null) {
+                        allData[key] = data;
+                    }
+                });
+                
+                return JSON.stringify(allData, null, 2);
+            }
+            
+            // Import data from backup
+            importData(jsonData) {
+                try {
+                    const data = JSON.parse(jsonData);
+                    Object.keys(data).forEach(key => {
+                        this.save(key, data[key]);
+                    });
+                    console.log('✅ Data imported successfully');
+                    return true;
+                } catch (e) {
+                    console.error('❌ Failed to import data:', e);
+                    return false;
+                }
+            }
+        }
+        
+        // Initialize storage manager
+        const storageManager = new StorageManager();
+        
+        // Backup and Restore functionality
+        document.addEventListener('DOMContentLoaded', function() {
+            const backupBtn = document.getElementById('backupBtn');
+            const restoreBtn = document.getElementById('restoreBtn');
+            const restoreFile = document.getElementById('restoreFile');
+            
+            if (backupBtn) {
+                backupBtn.addEventListener('click', function() {
+                    try {
+                        const data = storageManager.exportData();
+                        const blob = new Blob([data], { type: 'application/json' });
+                        const url = URL.createObjectURL(blob);
+                        const a = document.createElement('a');
+                        a.href = url;
+                        a.download = `SJ_BACKUP_${new Date().toISOString().split('T')[0]}.json`;
+                        document.body.appendChild(a);
+                        a.click();
+                        document.body.removeChild(a);
+                        URL.revokeObjectURL(url);
+                        
+                        alert('✅ Data berhasil di-backup!');
+                    } catch (error) {
+                        console.error('❌ Backup failed:', error);
+                        alert('❌ Gagal melakukan backup data!');
+                    }
+                });
+            }
+            
+            if (restoreBtn) {
+                restoreBtn.addEventListener('click', function() {
+                    restoreFile.click();
+                });
+            }
+            
+            if (restoreFile) {
+                restoreFile.addEventListener('change', function(e) {
+                    const file = e.target.files[0];
+                    if (!file) return;
+                    
+                    const reader = new FileReader();
+                    reader.onload = function(e) {
+                        try {
+                            const success = storageManager.importData(e.target.result);
+                            if (success) {
+                                alert('✅ Data berhasil di-restore! Halaman akan di-refresh.');
+                                location.reload();
+                            } else {
+                                alert('❌ Gagal melakukan restore data!');
+                            }
+                        } catch (error) {
+                            console.error('❌ Restore failed:', error);
+                            alert('❌ File backup tidak valid!');
+                        }
+                    };
+                    reader.readAsText(file);
+                });
+            }
+        });
+
         // Database toko lengkap dikelola via localStorage (tanpa seed bawaan)
         const databaseTokoLengkap = [];
-        // Load dari localStorage bila ada data tersimpan untuk daftar lengkap
+        // Load dari storage dengan fallback
         (function loadDatabaseTokoLengkapFromStorage(){
             try {
-                const saved = JSON.parse(localStorage.getItem('databaseTokoLengkap') || 'null');
+                const saved = storageManager.load('databaseTokoLengkap');
                 if (Array.isArray(saved) && saved.length > 0) {
                     databaseTokoLengkap.splice(0, databaseTokoLengkap.length, ...saved);
                     // Sinkronkan map autocomplete dari data yang di-load agar tanpa default bawaan
@@ -3492,7 +3682,7 @@ No. Kendaraan: ${noKendaraan}
         })();
 
         function persistDatabaseTokoLengkapArray() {
-            try { localStorage.setItem('databaseTokoLengkap', JSON.stringify(databaseTokoLengkap)); } catch (_) {}
+            storageManager.save('databaseTokoLengkap', databaseTokoLengkap);
         }
         // Hapus inisialisasi otomatis dari seed; hanya gunakan data localStorage yang ada
 
@@ -5079,15 +5269,15 @@ No. Kendaraan: ${noKendaraan}
             }
         };
         
-        // Load saved positions from localStorage on page load
+        // Load saved positions from storage on page load
         function loadSavedPositions() {
             try {
-                const saved = localStorage.getItem('printTextPositions');
+                const saved = storageManager.load('printTextPositions');
                 if (saved) {
-                    savedPositions = JSON.parse(saved);
-                    console.log('✅ Loaded saved positions from localStorage:', savedPositions);
+                    savedPositions = saved;
+                    console.log('✅ Loaded saved positions from storage:', savedPositions);
                 } else {
-                    console.log('ℹ️ No saved positions found in localStorage');
+                    console.log('ℹ️ No saved positions found in storage');
                 }
             } catch (error) {
                 console.error('❌ Error loading saved positions:', error);
@@ -5095,11 +5285,11 @@ No. Kendaraan: ${noKendaraan}
             }
         }
         
-        // Save positions to localStorage
+        // Save positions to storage
         function savePositionsToStorage() {
             try {
-                localStorage.setItem('printTextPositions', JSON.stringify(savedPositions));
-                console.log('💾 Positions saved to localStorage:', savedPositions);
+                storageManager.save('printTextPositions', savedPositions);
+                console.log('💾 Positions saved to storage:', savedPositions);
             } catch (error) {
                 console.error('❌ Error saving positions:', error);
             }
@@ -5201,7 +5391,14 @@ No. Kendaraan: ${noKendaraan}
         // Function to clear saved positions
         function clearSavedPositions() {
             try {
-                localStorage.removeItem('printTextPositions');
+                // Try to remove from localStorage first
+                try { localStorage.removeItem('printTextPositions'); } catch (_) {}
+                // Try to remove from sessionStorage
+                try { sessionStorage.removeItem('printTextPositions'); } catch (_) {}
+                // Clear from memory fallback
+                if (storageManager.fallbackData['printTextPositions']) {
+                    delete storageManager.fallbackData['printTextPositions'];
+                }
                 savedPositions = {};
                 console.log('Saved positions cleared');
                 alert('Posisi tersimpan telah dihapus! Posisi akan kembali ke default saat modal dibuka kembali.');
@@ -5641,10 +5838,10 @@ No. Kendaraan: ${noKendaraan}
             
             console.log(`📝 Font size changed to ${newFontSize}px`);
             
-            // Save font size preference to localStorage
+            // Save font size preference to storage
             try {
-                localStorage.setItem('printFontSize', newFontSize.toString());
-                console.log('💾 Font size preference saved to localStorage');
+                storageManager.save('printFontSize', newFontSize.toString());
+                console.log('💾 Font size preference saved to storage');
             } catch (error) {
                 console.error('❌ Error saving font size preference:', error);
             }
@@ -5675,7 +5872,7 @@ No. Kendaraan: ${noKendaraan}
             });
 
             try {
-                localStorage.setItem('printFontFamily', newFontFamily);
+                storageManager.save('printFontFamily', newFontFamily);
             } catch (error) {
                 console.error('❌ Error saving font family preference:', error);
             }
@@ -5684,7 +5881,7 @@ No. Kendaraan: ${noKendaraan}
         // Load saved font family preference
         function loadFontFamilyPreference() {
             try {
-                const saved = localStorage.getItem('printFontFamily');
+                const saved = storageManager.load('printFontFamily');
                 const select = document.getElementById('fontFamilyControl');
                 if (saved && select) {
                     currentFontFamily = saved;
@@ -5720,10 +5917,10 @@ No. Kendaraan: ${noKendaraan}
             
             console.log(`📝 Font weight changed to ${newFontWeight}`);
             
-            // Save font weight preference to localStorage
+            // Save font weight preference to storage
             try {
-                localStorage.setItem('printFontWeight', newFontWeight.toString());
-                console.log('💾 Font weight preference saved to localStorage');
+                storageManager.save('printFontWeight', newFontWeight.toString());
+                console.log('💾 Font weight preference saved to storage');
             } catch (error) {
                 console.error('❌ Error saving font weight preference:', error);
             }
@@ -5732,7 +5929,7 @@ No. Kendaraan: ${noKendaraan}
         // Function to load saved font weight preference
         function loadFontWeightPreference() {
             try {
-                const saved = localStorage.getItem('printFontWeight');
+                const saved = storageManager.load('printFontWeight');
                 if (saved) {
                     const weight = parseInt(saved);
                     currentFontWeight = weight;
@@ -5765,7 +5962,7 @@ No. Kendaraan: ${noKendaraan}
         // Function to load saved font size preference
         function loadFontSizePreference() {
             try {
-                const savedFontSize = localStorage.getItem('printFontSize');
+                const savedFontSize = storageManager.load('printFontSize');
                 if (savedFontSize) {
                     const fontSize = parseInt(savedFontSize);
                     currentFontSize = fontSize;
@@ -5803,10 +6000,10 @@ No. Kendaraan: ${noKendaraan}
             
             console.log(`📊 Column spacing changed to ${newSpacing}px`);
             
-            // Save column spacing preference to localStorage
+            // Save column spacing preference to storage
             try {
-                localStorage.setItem('printColumnSpacing', newSpacing.toString());
-                console.log('💾 Column spacing preference saved to localStorage');
+                storageManager.save('printColumnSpacing', newSpacing.toString());
+                console.log('💾 Column spacing preference saved to storage');
             } catch (error) {
                 console.error('❌ Error saving column spacing preference:', error);
             }
@@ -5951,7 +6148,7 @@ No. Kendaraan: ${noKendaraan}
         // Function to load saved column spacing preference
         function loadColumnSpacingPreference() {
             try {
-                const savedSpacing = localStorage.getItem('printColumnSpacing');
+                const savedSpacing = storageManager.load('printColumnSpacing');
                 if (savedSpacing) {
                     const spacing = parseInt(savedSpacing);
                     currentColumnSpacing = spacing;
@@ -6055,22 +6252,22 @@ No. Kendaraan: ${noKendaraan}
             }
         }
 
-        // Function to save column spacing to localStorage
+        // Function to save column spacing to storage
         function saveColumnSpacingToStorage() {
             try {
-                localStorage.setItem('columnSpacingConfig', JSON.stringify(columnSpacingConfig));
-                console.log('💾 Column spacing saved to localStorage');
+                storageManager.save('columnSpacingConfig', columnSpacingConfig);
+                console.log('💾 Column spacing saved to storage');
             } catch (error) {
                 console.error('❌ Error saving column spacing:', error);
             }
         }
 
-        // Function to load column spacing from localStorage
+        // Function to load column spacing from storage
         function loadColumnSpacingFromStorage() {
             try {
-                const saved = localStorage.getItem('columnSpacingConfig');
+                const saved = storageManager.load('columnSpacingConfig');
                 if (saved) {
-                    const loaded = JSON.parse(saved);
+                    const loaded = saved;
                     columnSpacingConfig = { ...columnSpacingConfig, ...loaded };
                     
                     // Update input values if they exist
@@ -6084,7 +6281,7 @@ No. Kendaraan: ${noKendaraan}
                         document.getElementById('colTotalLbr').value = columnSpacingConfig.totalLbr;
                     }
                     
-                    console.log('📊 Loaded column spacing from localStorage:', columnSpacingConfig);
+                    console.log('📊 Loaded column spacing from storage:', columnSpacingConfig);
                 }
             } catch (error) {
                 console.error('❌ Error loading column spacing:', error);
@@ -6605,21 +6802,22 @@ No. Kendaraan: ${noKendaraan}
         // Track last entered No. SJ to warn on duplicates
         let lastNomorSJ = '';
         try {
-            lastNomorSJ = (localStorage.getItem('lastNomorSJ') || '').trim();
+            const saved = storageManager.load('lastNomorSJ');
+            lastNomorSJ = (saved || '').trim();
         } catch (_) {
             lastNomorSJ = '';
         }
 
-        // Load input log from localStorage on page load
+        // Load input log from storage on page load
         function loadInputLogFromStorage() {
             try {
-                const saved = localStorage.getItem('inputLogHistory');
+                const saved = storageManager.load('inputLogHistory');
                 if (saved) {
-                    inputLogHistory = JSON.parse(saved);
-                    console.log('✅ Loaded input log from localStorage:', inputLogHistory.length, 'entries');
+                    inputLogHistory = saved;
+                    console.log('✅ Loaded input log from storage:', inputLogHistory.length, 'entries');
                     renderInputLog();
                 } else {
-                    console.log('ℹ️ No input log found in localStorage');
+                    console.log('ℹ️ No input log found in storage');
                 }
             } catch (error) {
                 console.error('❌ Error loading input log:', error);
@@ -6627,11 +6825,11 @@ No. Kendaraan: ${noKendaraan}
             }
         }
 
-        // Save input log to localStorage
+        // Save input log to storage
         function saveInputLogToStorage() {
             try {
-                localStorage.setItem('inputLogHistory', JSON.stringify(inputLogHistory));
-                console.log('💾 Input log saved to localStorage:', inputLogHistory.length, 'entries');
+                storageManager.save('inputLogHistory', inputLogHistory);
+                console.log('💾 Input log saved to storage:', inputLogHistory.length, 'entries');
                 // Update suggestion datalists whenever log changes
                 updateKacaSuggestionsFromLogs();
                 if (typeof window.refreshNomorSJWarningNow === 'function') {
@@ -6688,7 +6886,7 @@ No. Kendaraan: ${noKendaraan}
             // Save to localStorage
             saveInputLogToStorage();
             // Update lastNomorSJ AFTER successful save/print
-            try { localStorage.setItem('lastNomorSJ', nomorSJ); } catch (_) {}
+            try { storageManager.save('lastNomorSJ', nomorSJ); } catch (_) {}
             lastNomorSJ = nomorSJ;
             
             // Render the log
