@@ -4147,7 +4147,9 @@ No. Kendaraan: ${noKendaraan}
                 const lbrMatch = lbrValue.trim().match(/^(\d+(?:\.\d+)?)/);
                 const lbr = lbrMatch ? parseFloat(lbrMatch[1]) : 0;
                 
-                const total = box * lbr;
+                // Jika kolom BOX tidak diisi, maka TOTAL LBR = LBR
+                // Jika kolom BOX diisi, maka TOTAL LBR = BOX * LBR
+                const total = (box === 0 || !boxValue.trim()) ? lbr : box * lbr;
                 
                 // Format total dengan satuan LBR
                 totalInput.value = Math.round(total) + " LBR";
@@ -6541,7 +6543,9 @@ No. Kendaraan: ${noKendaraan}
                     const lbrNumMatch = (lbr || '').trim().match(/^(\d+(?:\.\d+)?)/);
                     const boxNum = boxNumMatch ? parseFloat(boxNumMatch[1]) : 0;
                     const lbrNum = lbrNumMatch ? parseFloat(lbrNumMatch[1]) : 0;
-                    const computed = boxNum * lbrNum;
+                    // Jika kolom BOX tidak diisi, maka TOTAL LBR = LBR
+                    // Jika kolom BOX diisi, maka TOTAL LBR = BOX * LBR
+                    const computed = (boxNum === 0 || !box.trim()) ? lbrNum : boxNum * lbrNum;
                     if (computed > 0) {
                         totalLbr = String(Math.round(computed)) + ' LBR';
                     }
@@ -7002,7 +7006,9 @@ No. Kendaraan: ${noKendaraan}
                     const lbrNumMatch = (lbr || '').trim().match(/^(\d+(?:\.\d+)?)/);
                     const boxNum = boxNumMatch ? parseFloat(boxNumMatch[1]) : 0;
                     const lbrNum = lbrNumMatch ? parseFloat(lbrNumMatch[1]) : 0;
-                    const computed = boxNum * lbrNum;
+                    // Jika kolom BOX tidak diisi, maka TOTAL LBR = LBR
+                    // Jika kolom BOX diisi, maka TOTAL LBR = BOX * LBR
+                    const computed = (boxNum === 0 || !box.trim()) ? lbrNum : boxNum * lbrNum;
                     if (computed > 0) {
                         totalLbr = String(Math.round(computed)) + ' LBR';
                     }
