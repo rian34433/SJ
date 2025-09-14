@@ -3059,9 +3059,9 @@
 								padding-top: 5px;
 								padding-left: 20px;
 								padding-bottom: 20px;">
-                    <div class="log-header" role="button" tabindex="0" aria-expanded="false" aria-controls="inputLogContainer" style="padding-bottom: 5px;">
+                    <div class="log-header" aria-expanded="true" aria-controls="inputLogContainer" style="padding-bottom: 5px;">
                         <h3>📝 Log Input History</h3>
-                        <div class="log-header-actions" role="group" aria-label="Log actions" style="display: flex; gap: 10px; align-items: stretch; opacity: 0.9; flex-flow: column wrap-reverse; place-content: flex-end center;">
+                        <div class="log-header-actions" role="group" aria-label="Log actions" style="display: flex; gap: 10px; align-items: stretch; opacity: 1; flex-flow: column wrap-reverse; place-content: flex-end center;">
                             <input type="text" id="logSearchInput" class="log-search-input" placeholder="Search" oninput="applyLogSearch()" title="Ketik untuk mencari di log">
                             <div class="log-action-buttons">
                                 <button type="button" class="btn-export-log" onclick="exportInputLogToCSV()" title="Export ke CSV (Excel)">⬇️ Export Log</button>
@@ -7050,10 +7050,72 @@ No. Kendaraan: ${noKendaraan}
         // Current search query state
         let currentLogSearchQuery = '';
 
+        // Helper function to check if input is a date filter
+        function isDateFilter(input) {
+            // Check for dd/mm/yy, dd/mm, or dd format
+            const datePatterns = [
+                /^\d{1,2}\/\d{1,2}\/\d{2}$/,  // dd/mm/yy
+                /^\d{1,2}\/\d{1,2}$/,          // dd/mm
+                /^\d{1,2}$/                     // dd
+            ];
+            return datePatterns.some(pattern => pattern.test(input));
+        }
+
+        // Helper function to parse date filter
+        function parseDateFilter(input) {
+            const today = new Date();
+            const currentYear = today.getFullYear();
+            const currentMonth = today.getMonth() + 1; // getMonth() returns 0-11
+            
+            if (input.includes('/')) {
+                const parts = input.split('/');
+                if (parts.length === 3) {
+                    // dd/mm/yy format
+                    const day = parseInt(parts[0]);
+                    const month = parseInt(parts[1]);
+                    const year = parseInt(parts[2]) + (parts[2] < 50 ? 2000 : 1900);
+                    return { day, month, year };
+                } else if (parts.length === 2) {
+                    // dd/mm format
+                    const day = parseInt(parts[0]);
+                    const month = parseInt(parts[1]);
+                    return { day, month, year: currentYear };
+                }
+            } else {
+                // dd format
+                const day = parseInt(input);
+                return { day, month: currentMonth, year: currentYear };
+            }
+            return null;
+        }
+
+        // Helper function to check if entry date matches filter
+        function matchesDateFilter(entryDate, filterDate) {
+            if (!filterDate) return false;
+            
+            const entryDay = entryDate.getDate();
+            const entryMonth = entryDate.getMonth() + 1;
+            const entryYear = entryDate.getFullYear();
+            
+            return entryDay === filterDate.day && 
+                   entryMonth === filterDate.month && 
+                   entryYear === filterDate.year;
+        }
+
         function applyLogSearch() {
             const input = document.getElementById('logSearchInput');
-            currentLogSearchQuery = (input && input.value ? input.value : '').trim().toLowerCase();
+            currentLogSearchQuery = (input && input.value ? input.value : '').trim();
             renderInputLog();
+        }
+
+        // Reset log search filter
+        function resetLogSearchFilter() {
+            const input = document.getElementById('logSearchInput');
+            if (input) {
+                input.value = '';
+                currentLogSearchQuery = '';
+                renderInputLog();
+            }
         }
 
         // Render input log entries (respects currentLogSearchQuery)
@@ -7073,29 +7135,57 @@ No. Kendaraan: ${noKendaraan}
             // Filter by search query if present
             let filtered = inputLogHistory;
             if (currentLogSearchQuery) {
-                const q = currentLogSearchQuery;
-                filtered = inputLogHistory.filter(entry => {
-                    try {
-                        const d = entry.data || {};
-                        const fields = [
-                            d.namaToko,
-                            d.alias,
-                            d.alamat,
-                            d.tanggal,
-                            d.nomorSJ,
-                            d.supir,
-                            d.noKendaraan
-                        ].map(v => (v || '').toString().toLowerCase());
+                const q = currentLogSearchQuery.toLowerCase();
+                
+                // Check for special sorting commands
+                if (q === '1-2') {
+                    // Sort No SJ from small to large (ascending)
+                    filtered = inputLogHistory.slice().sort((a, b) => {
+                        const sjA = parseInt(a.data.nomorSJ) || 0;
+                        const sjB = parseInt(b.data.nomorSJ) || 0;
+                        return sjA - sjB;
+                    });
+                } else if (q === '2-1') {
+                    // Sort No SJ from large to small (descending)
+                    filtered = inputLogHistory.slice().sort((a, b) => {
+                        const sjA = parseInt(a.data.nomorSJ) || 0;
+                        const sjB = parseInt(b.data.nomorSJ) || 0;
+                        return sjB - sjA;
+                    });
+                } else if (isDateFilter(q)) {
+                    // Filter by date
+                    filtered = inputLogHistory.filter(entry => {
+                        try {
+                            const entryDate = new Date(entry.data.tanggal);
+                            const searchDate = parseDateFilter(q);
+                            return matchesDateFilter(entryDate, searchDate);
+                        } catch (_) { return false; }
+                    });
+                } else {
+                    // Regular text search
+                    filtered = inputLogHistory.filter(entry => {
+                        try {
+                            const d = entry.data || {};
+                            const fields = [
+                                d.namaToko,
+                                d.alias,
+                                d.alamat,
+                                d.tanggal,
+                                d.nomorSJ,
+                                d.supir,
+                                d.noKendaraan
+                            ].map(v => (v || '').toString().toLowerCase());
 
-                        // Search inside kaca rows too
-                        const kaca = d.kacaData || {};
-                        const rows = Array.isArray(kaca) ? kaca : (kaca.rows || []);
-                        const rowsText = rows.map(r => [r.jenisKaca, r.pwd, r.noDo, r.ukuran, r.box, r.lbr, r.totalLbr]
-                            .map(v => (v || '').toString().toLowerCase()).join(' ')).join(' ');
+                            // Search inside kaca rows too
+                            const kaca = d.kacaData || {};
+                            const rows = Array.isArray(kaca) ? kaca : (kaca.rows || []);
+                            const rowsText = rows.map(r => [r.jenisKaca, r.pwd, r.noDo, r.ukuran, r.box, r.lbr, r.totalLbr]
+                                .map(v => (v || '').toString().toLowerCase()).join(' ')).join(' ');
 
-                        return fields.some(text => text.includes(q)) || rowsText.includes(q);
-                    } catch (_) { return false; }
-                });
+                            return fields.some(text => text.includes(q)) || rowsText.includes(q);
+                        } catch (_) { return false; }
+                    });
+                }
             }
 
             if (filtered.length === 0) {
@@ -7469,6 +7559,8 @@ No. Kendaraan: ${noKendaraan}
         // Load input log when page loads
         document.addEventListener('DOMContentLoaded', function() {
             loadInputLogFromStorage();
+            // Reset search filter on page load
+            resetLogSearchFilter();
             // Build initial suggestions (once after initial log load)
             updateKacaSuggestionsFromLogs();
             // Disable browser autocomplete on existing inputs to avoid duplicate dropdowns
@@ -8287,42 +8379,16 @@ No. Kendaraan: ${noKendaraan}
                     const rightSection = document.querySelector('.right-section');
                     if (!logHeader || !logContainer || !logActions) return;
 
-                    // Indicate clickable header
-                    logHeader.style.cursor = 'pointer';
-
-                    let isLogExpanded = false;
-                    const applyState = () => {
-                        logContainer.style.display = isLogExpanded ? '' : 'none';
-                        logActions.style.display = isLogExpanded ? 'flex' : 'none';
-                        logHeader.setAttribute('aria-expanded', String(isLogExpanded));
-                        // Ubah header menjadi satu baris saat collapsed (height kecil)
-                        logHeader.style.marginBottom = isLogExpanded ? '8px' : '2px';
-                        // Tampilkan juga tombol di header ketika expanded, tetap tampil saat collapsed
-                        if (logHeaderActions) {
-                            logHeaderActions.style.opacity = isLogExpanded ? '1' : '0.9';
-                        }
-                    };
-                    applyState();
-
-                    const toggle = () => {
-                        isLogExpanded = !isLogExpanded;
-                        applyState();
-                    };
-
-                    logHeader.addEventListener('click', (e) => {
-                        // Prevent toggle when interacting with controls inside header (search input, buttons)
-                        const target = e.target;
-                        if (target && (target.closest('.log-header-actions') || target.tagName === 'INPUT' || target.tagName === 'BUTTON')) {
-                            return;
-                        }
-                        toggle();
-                    });
-                    logHeader.addEventListener('keydown', (e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                            e.preventDefault();
-                            toggle();
-                        }
-                    });
+                    // Keep log container always visible
+                    logContainer.style.display = '';
+                    logActions.style.display = 'flex';
+                    logHeader.setAttribute('aria-expanded', 'true');
+                    logHeader.style.marginBottom = '8px';
+                    
+                    // Keep header actions always visible
+                    if (logHeaderActions) {
+                        logHeaderActions.style.opacity = '1';
+                    }
                 } catch (error) {
                     console.error('Failed to initialize Log Input History toggle:', error);
                 }
