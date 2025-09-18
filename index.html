@@ -2599,6 +2599,33 @@
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.15);
         }
 
+        /* Duplicate warning styles */
+        .search-with-warning {
+            border-color: #dc3545 !important;
+            box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.15) !important;
+        }
+
+        /* Editing mode indicator */
+        .editing-mode {
+            background: linear-gradient(45deg, #fff3cd, #ffeaa7) !important;
+            border: 2px solid #ffc107 !important;
+            box-shadow: 0 0 0 3px rgba(255, 193, 7, 0.25) !important;
+        }
+
+        .editing-indicator {
+            position: fixed;
+            top: 3px;
+            left: 10px;
+            background: #ffc107;
+            color: #000;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-weight: bold;
+            font-size: 12px;
+            z-index: 1000;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
         .no-log-message {
             text-align: center;
             padding: 40px 20px;
@@ -3060,7 +3087,7 @@
 								padding-left: 20px;
 								padding-bottom: 20px;">
                     <div class="log-header" aria-expanded="true" aria-controls="inputLogContainer" style="padding-bottom: 5px;">
-                        <h3>📝 Log Input History</h3>
+                        <h3>📝 LOG INPUT HISTORY</h3>
                         <div class="log-header-actions" role="group" aria-label="Log actions" style="display: flex; gap: 10px; align-items: stretch; opacity: 1; flex-flow: column wrap-reverse; place-content: flex-end center;">
                             <input type="text" id="logSearchInput" class="log-search-input" placeholder="Search" oninput="applyLogSearch()" title="Ketik untuk mencari di log">
                             <div class="log-action-buttons">
@@ -6805,6 +6832,8 @@ No. Kendaraan: ${noKendaraan}
         let inputLogHistory = [];
         // Track last entered No. SJ to warn on duplicates
         let lastNomorSJ = '';
+        // Track entry being edited
+        let editingLogEntry = null;
         try {
             const saved = storageManager.load('lastNomorSJ');
             lastNomorSJ = (saved || '').trim();
@@ -6879,12 +6908,21 @@ No. Kendaraan: ${noKendaraan}
                 }
             };
             
-            // Add to beginning of array (newest first)
-            inputLogHistory.unshift(logEntry);
-            
-            // Keep only last 50 entries to prevent memory issues
-            if (inputLogHistory.length > 50) {
-                inputLogHistory = inputLogHistory.slice(0, 50);
+            // Check if we're editing an existing entry
+            if (editingLogEntry) {
+                // Replace the original entry with the new one
+                inputLogHistory[editingLogEntry.index] = logEntry;
+                editingLogEntry = null; // Clear editing state
+                hideEditingIndicator(); // Hide editing indicator
+                console.log('✏️ Updated existing log entry');
+            } else {
+                // Add to beginning of array (newest first)
+                inputLogHistory.unshift(logEntry);
+                
+                // Keep only last 50 entries to prevent memory issues
+                if (inputLogHistory.length > 50) {
+                    inputLogHistory = inputLogHistory.slice(0, 50);
+                }
             }
             
             // Save to localStorage
@@ -7102,6 +7140,53 @@ No. Kendaraan: ${noKendaraan}
                    entryYear === filterDate.year;
         }
 
+        // Function to detect duplicate No. SJ entries and show warnings in placeholder
+        function updateDuplicateWarnings() {
+            const searchInput = document.getElementById('logSearchInput');
+            
+            if (!searchInput) return;
+            
+            // Count occurrences of each No. SJ
+            const sjCounts = {};
+            inputLogHistory.forEach(entry => {
+                const sj = (entry.data?.nomorSJ || '').trim();
+                if (sj) {
+                    sjCounts[sj] = (sjCounts[sj] || 0) + 1;
+                }
+            });
+            
+            // Find duplicates (more than 1 occurrence)
+            const duplicates = Object.entries(sjCounts)
+                .filter(([sj, count]) => count > 1)
+                .sort((a, b) => b[1] - a[1]); // Sort by count descending
+            
+            if (duplicates.length === 0) {
+                // No duplicates, normal placeholder
+                searchInput.classList.remove('search-with-warning');
+                searchInput.placeholder = 'Search';
+                return;
+            }
+            
+            // Show warning styling and update placeholder
+            searchInput.classList.add('search-with-warning');
+            
+            // Create simple warning text with duplicate numbers (max 3)
+            const maxDisplay = 3;
+            const displayDuplicates = duplicates.slice(0, maxDisplay);
+            let warningText = '⚠️ ';
+            
+            displayDuplicates.forEach(([sj, count]) => {
+                warningText += `${sj}(${count}) `;
+            });
+            
+            // Add "..." if there are more than 3 duplicates
+            if (duplicates.length > maxDisplay) {
+                warningText += '...';
+            }
+            
+            searchInput.placeholder = warningText.trim();
+        }
+
         function applyLogSearch() {
             const input = document.getElementById('logSearchInput');
             currentLogSearchQuery = (input && input.value ? input.value : '').trim();
@@ -7138,7 +7223,22 @@ No. Kendaraan: ${noKendaraan}
                 const q = currentLogSearchQuery.toLowerCase();
                 
                 // Check for special sorting commands
-                if (q === '1-2') {
+                if (q === '=') {
+                    // Filter to show only duplicate No. SJ entries
+                    const sjCounts = {};
+                    inputLogHistory.forEach(entry => {
+                        const sj = (entry.data?.nomorSJ || '').trim();
+                        if (sj) {
+                            sjCounts[sj] = (sjCounts[sj] || 0) + 1;
+                        }
+                    });
+                    
+                    const duplicateSJs = Object.keys(sjCounts).filter(sj => sjCounts[sj] > 1);
+                    filtered = inputLogHistory.filter(entry => {
+                        const sj = (entry.data?.nomorSJ || '').trim();
+                        return duplicateSJs.includes(sj);
+                    });
+                } else if (q === '1-2') {
                     // Sort No SJ from small to large (ascending)
                     filtered = inputLogHistory.slice().sort((a, b) => {
                         const sjA = parseInt(a.data.nomorSJ) || 0;
@@ -7220,7 +7320,7 @@ No. Kendaraan: ${noKendaraan}
                 
                 html += `
                     <div class="log-entry" onclick="toggleLogDetailsById(${entry.id})" title="Klik untuk melihat detail lengkap">
-                        <div class="log-entry-header">
+                        <div class="log-entry-header" style="margin-bottom: 0px;">
                             <span class="log-timestamp">${timestamp}</span>
                             <span class="log-toggle-icon">📋</span>
                         </div>
@@ -7284,18 +7384,13 @@ No. Kendaraan: ${noKendaraan}
                                 <span class="log-value">${entry.data.noKendaraan}</span>
                             </div>
                             <div class="log-item">
-                                <span class="log-label">Alamat</span>
-                                <span class="log-sep">:</span>
-                                <span class="log-value">${entry.data.alamat || 'Tidak ada alamat'}</span>
-                            </div>
-                            <div class="log-item">
                                 <span class="log-label">Data Kaca</span>
                                 <span class="log-sep">:</span>
                                 <span class="log-value">${kacaDataDisplay}</span>
                             </div>
                             
                             <!-- Action buttons for detailed view -->
-                            <div class="log-actions-detailed">
+                            <div class="log-actions-detailed" style="padding-top: 4px;">
                                 <button type="button" class="btn-load-data" onclick="loadInputFromLogById(${entry.id}); event.stopPropagation();" title="Muat data ke form">
                                     🔄 Muat ke Form
                                 </button>
@@ -7312,6 +7407,9 @@ No. Kendaraan: ${noKendaraan}
             });
             
             container.innerHTML = html;
+            
+            // Update duplicate warnings after rendering
+            updateDuplicateWarnings();
         }
 
         // Function to format kaca data for display in log
@@ -7366,9 +7464,14 @@ No. Kendaraan: ${noKendaraan}
         }
 
         // Load input from log entry to form
-        function loadInputFromLog(index) {
+        function loadInputFromLog(index, isEditing = false) {
             const entry = inputLogHistory[index];
             if (!entry) return;
+            
+            // If not editing, clear any existing editing state
+            if (!isEditing) {
+                cancelEditing();
+            }
             
             // Fill form fields
             document.getElementById('namaToko').value = entry.data.namaToko;
@@ -7404,7 +7507,7 @@ No. Kendaraan: ${noKendaraan}
             }
             
             // Show success message
-            alert(`Form telah diisi dengan data dari log: ${entry.data.namaToko}`);
+            alert(`LOG dari: ${entry.data.namaToko}`);
             
             console.log('🔄 Loaded input from log entry:', entry);
         }
@@ -7517,17 +7620,48 @@ No. Kendaraan: ${noKendaraan}
             }
         }
 
-        // Edit a specific log entry: load into form for editing and remove the old entry (will be re-saved on next print)
+        // Edit a specific log entry: load into form for editing (entry will be replaced when saved)
         function editLogEntry(index) {
             const entry = inputLogHistory[index];
             if (!entry) return;
+            
+            // Store reference to entry being edited
+            editingLogEntry = { entry: entry, index: index };
+            
             // Load to form
-            loadInputFromLog(index);
-            // Remove the entry so next save creates updated version at top
-            inputLogHistory.splice(index, 1);
-            saveInputLogToStorage();
-            renderInputLog();
-            alert('Log dimuat ke form untuk diedit. Setelah selesai, tekan Print Sekarang untuk menyimpan perubahan.');
+            loadInputFromLog(index, true);
+            
+            // Show editing indicator
+            showEditingIndicator();
+        }
+
+        // Show editing mode indicator
+        function showEditingIndicator() {
+            // Remove existing indicator
+            const existing = document.getElementById('editingIndicator');
+            if (existing) existing.remove();
+            
+            // Create new indicator
+            const indicator = document.createElement('div');
+            indicator.id = 'editingIndicator';
+            indicator.className = 'editing-indicator';
+            indicator.innerHTML = '✏️ Mode Edit';
+            document.body.appendChild(indicator);
+        }
+
+        // Hide editing mode indicator
+        function hideEditingIndicator() {
+            const indicator = document.getElementById('editingIndicator');
+            if (indicator) indicator.remove();
+        }
+
+        // Cancel editing and restore original entry
+        function cancelEditing() {
+            if (editingLogEntry) {
+                editingLogEntry = null;
+                hideEditingIndicator();
+                console.log('❌ Editing cancelled');
+            }
         }
 
         // Delete a specific log entry
