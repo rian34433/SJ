@@ -6641,7 +6641,7 @@ No. Kendaraan: ${noKendaraan}
             let formattedDate = 'Tanggal';
             if (tanggal) {
                 const date = new Date(tanggal);
-                const day = date.toLocaleDateString('id-ID', { day: 'numeric' });
+                const day = date.toLocaleDateString('id-ID', { day: '2-digit' });
                 const monthUpper = date.toLocaleDateString('id-ID', { month: 'long' }).toUpperCase();
                 const year = date.toLocaleDateString('id-ID', { year: 'numeric' });
                 formattedDate = `${day} ${monthUpper} ${year}`;
