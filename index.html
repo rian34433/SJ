@@ -981,6 +981,7 @@
 
         .kaca-table input[type="number"] {
             -moz-appearance: textfield;
+            appearance: textfield;
         }
 
         .kaca-table input[type="number"]::-webkit-outer-spin-button,
@@ -2840,6 +2841,26 @@
             box-shadow: 0 6px 20px rgba(13, 110, 253, 0.3);
         }
 
+        .btn-restore-log {
+            background: linear-gradient(135deg, #fd7e14 0%, #e8650e 100%);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 6px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            flex: 1;
+            margin: 0 4px;
+            min-width: 120px;
+        }
+
+        .btn-restore-log:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 20px rgba(253, 126, 20, 0.3);
+        }
+
         /* New buttons for log actions */
         .btn-edit-log {
             background: linear-gradient(135deg, #6f42c1 0%, #5a32a3 100%);
@@ -3094,6 +3115,8 @@
                                 <button type="button" class="btn-export-log" onclick="exportInputLogToCSV()" title="Export ke CSV (Excel)">⬇️ Export Log</button>
                                 <button type="button" class="btn-import-log" onclick="document.getElementById('importLogFileInput').click()" title="Import dari CSV (Excel)">⬆️ Import Log</button>
                                 <input type="file" id="importLogFileInput" accept=".csv" style="display:none" onchange="handleImportLogFile(event)">
+                                <button type="button" class="btn-restore-log" onclick="triggerRestoreFileSelection()" title="Restore dari beberapa file backup (CSV/JSON)" style="height: 32px;">🔄Restore Log</button>
+                                <input type="file" id="restoreLogFileInput" accept=".csv,.json" multiple="multiple" style="display:none" onchange="handleRestoreLogFiles(event)">
                                 <button type="button" class="btn-clear-log" onclick="clearInputLog()" title="Hapus semua log">🗑️ Clear Log</button>
                             </div>
                         </div>
@@ -7703,6 +7726,13 @@ No. Kendaraan: ${noKendaraan}
                 el.setAttribute('autocapitalize', 'none');
                 el.setAttribute('spellcheck', 'false');
             });
+            
+            // Ensure restore file input has proper multiple attribute
+            const restoreInput = document.getElementById('restoreLogFileInput');
+            if (restoreInput) {
+                restoreInput.setAttribute('multiple', 'multiple');
+                console.log('Restore input multiple attribute set:', restoreInput.multiple);
+            }
         });
 
         // Export input log to CSV (Excel compatible)
@@ -7780,6 +7810,346 @@ No. Kendaraan: ${noKendaraan}
                 }
             };
             reader.readAsText(file, 'utf-8');
+        }
+
+        // Trigger restore file selection
+        function triggerRestoreFileSelection() {
+            const input = document.getElementById('restoreLogFileInput');
+            if (input) {
+                // Ensure multiple attribute is set
+                input.setAttribute('multiple', 'multiple');
+                console.log('Triggering restore file selection, multiple:', input.multiple);
+                input.click();
+            } else {
+                console.error('Restore file input not found');
+            }
+        }
+
+        // Handle restore from multiple backup files
+        function handleRestoreLogFiles(event) {
+            console.log('=== RESTORE FUNCTION CALLED ===');
+            const files = event.target.files;
+            console.log('Selected files:', files);
+            console.log('Number of files:', files ? files.length : 0);
+            
+            if (!files || files.length === 0) {
+                console.log('No files selected - exiting');
+                alert('Tidak ada file yang dipilih');
+                return;
+            }
+            
+            // Debug: log file names and details
+            console.log('=== FILE DETAILS ===');
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                console.log(`File ${i + 1}:`, {
+                    name: file.name,
+                    size: file.size,
+                    type: file.type,
+                    lastModified: new Date(file.lastModified)
+                });
+            }
+            
+            // Show progress dialog
+            console.log('Creating progress dialog...');
+            const progressDialog = showRestoreProgressDialog(files.length);
+            
+            processRestoreFiles(files, progressDialog)
+                .then(() => {
+                    hideRestoreProgressDialog(progressDialog);
+                    alert(`Restore berhasil! ${files.length} file backup telah diproses.`);
+                })
+                .catch(err => {
+                    hideRestoreProgressDialog(progressDialog);
+                    console.error('Restore error:', err);
+                    alert('Gagal restore: ' + err.message);
+                })
+                .finally(() => {
+                    // Reset file input to allow selecting same files again
+                    event.target.value = '';
+                    console.log('File input reset');
+                });
+        }
+
+        // Show restore progress dialog
+        function showRestoreProgressDialog(totalFiles) {
+            const dialog = document.createElement('div');
+            dialog.id = 'restoreProgressDialog';
+            dialog.style.cssText = `
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.5);
+                display: flex;
+                justify-content: center;
+                align-items: center;
+                z-index: 10000;
+            `;
+            
+            const content = document.createElement('div');
+            content.style.cssText = `
+                background: white;
+                padding: 30px;
+                border-radius: 12px;
+                text-align: center;
+                box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
+                max-width: 400px;
+                width: 90%;
+            `;
+            
+            content.innerHTML = `
+                <h3 style="margin: 0 0 20px 0; color: #333;">🔄 Memproses Restore</h3>
+                <div id="restoreProgressText">Membaca file 1 dari ${totalFiles}...</div>
+                <div style="margin: 20px 0;">
+                    <div style="background: #f0f0f0; border-radius: 10px; height: 20px; overflow: hidden;">
+                        <div id="restoreProgressBar" style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); height: 100%; width: 0%; transition: width 0.3s ease;"></div>
+                    </div>
+                </div>
+                <div id="restoreStatusText" style="font-size: 14px; color: #666; margin-top: 10px;">Memulai proses...</div>
+            `;
+            
+            dialog.appendChild(content);
+            document.body.appendChild(dialog);
+            return dialog;
+        }
+
+        // Hide restore progress dialog
+        function hideRestoreProgressDialog(dialog) {
+            if (dialog && dialog.parentNode) {
+                dialog.parentNode.removeChild(dialog);
+            }
+        }
+
+        // Process multiple restore files
+        async function processRestoreFiles(files, progressDialog) {
+            console.log('=== PROCESSING RESTORE FILES ===');
+            const allLogs = new Map(); // Use Map to store logs by ID, keeping only the latest
+            const fileArray = Array.from(files);
+            console.log('Processing', fileArray.length, 'files');
+            
+            for (let i = 0; i < fileArray.length; i++) {
+                const file = fileArray[i];
+                const progressText = document.getElementById('restoreProgressText');
+                const progressBar = document.getElementById('restoreProgressBar');
+                const statusText = document.getElementById('restoreStatusText');
+                
+                console.log(`\n--- Processing file ${i + 1}/${fileArray.length}: ${file.name} ---`);
+                
+                if (progressText) progressText.textContent = `Membaca file ${i + 1} dari ${fileArray.length}: ${file.name}`;
+                if (statusText) statusText.textContent = `Memproses ${file.name}...`;
+                
+                try {
+                    console.log('Reading file content...');
+                    const fileContent = await readFileAsText(file);
+                    console.log('File content length:', fileContent.length, 'characters');
+                    console.log('First 200 chars:', fileContent.substring(0, 200));
+                    
+                    let logs = [];
+                    
+                    // Determine file type and parse accordingly
+                    if (file.name.toLowerCase().endsWith('.json')) {
+                        console.log('Parsing as JSON...');
+                        logs = parseJSONToLogs(fileContent);
+                        console.log(`✅ Parsed JSON file ${file.name}:`, logs.length, 'entries');
+                    } else if (file.name.toLowerCase().endsWith('.csv')) {
+                        console.log('Parsing as CSV...');
+                        logs = parseCSVToLogs(fileContent);
+                        console.log(`✅ Parsed CSV file ${file.name}:`, logs.length, 'entries');
+                    } else {
+                        console.warn(`❌ Unsupported file type: ${file.name}`);
+                        if (statusText) statusText.textContent = `Peringatan: File ${file.name} tidak didukung (hanya CSV/JSON)`;
+                        continue;
+                    }
+                    
+                    // Debug: log sample entries
+                    if (logs.length > 0) {
+                        console.log('Sample log entry:', logs[0]);
+                    }
+                    
+                    // Merge logs, keeping the latest version of each entry
+                    let mergedCount = 0;
+                    logs.forEach(log => {
+                        if (log.id && log.timestamp) {
+                            const existingLog = allLogs.get(log.id);
+                            if (!existingLog || new Date(log.timestamp) > new Date(existingLog.timestamp)) {
+                                allLogs.set(log.id, log);
+                                mergedCount++;
+                            }
+                        } else {
+                            console.warn('Log entry missing ID or timestamp:', log);
+                        }
+                    });
+                    
+                    console.log(`Merged ${mergedCount} new/updated entries from ${file.name}`);
+                    if (statusText) statusText.textContent = `File ${file.name} berhasil diproses (${logs.length} entri, ${mergedCount} baru/diupdate)`;
+                    
+                } catch (err) {
+                    console.error(`❌ Error processing file ${file.name}:`, err);
+                    console.error('Error stack:', err.stack);
+                    if (statusText) statusText.textContent = `Error: File ${file.name} gagal diproses - ${err.message}`;
+                }
+                
+                // Update progress bar
+                const progress = ((i + 1) / fileArray.length) * 100;
+                if (progressBar) progressBar.style.width = progress + '%';
+                console.log(`Progress: ${progress.toFixed(1)}%`);
+            }
+            
+            // Convert Map back to array and sort by timestamp (newest first)
+            console.log('\n=== FINALIZING RESTORE ===');
+            console.log('Total unique logs collected:', allLogs.size);
+            
+            const mergedLogs = Array.from(allLogs.values()).sort((a, b) => 
+                new Date(b.timestamp) - new Date(a.timestamp)
+            );
+            
+            console.log('Final merged logs count:', mergedLogs.length);
+            console.log('Sample final log:', mergedLogs[0]);
+            
+            const statusText = document.getElementById('restoreStatusText');
+            if (statusText) statusText.textContent = `Menggabungkan ${mergedLogs.length} entri unik...`;
+            
+            // Replace current log history with merged logs
+            console.log('Replacing inputLogHistory...');
+            inputLogHistory = mergedLogs;
+            
+            console.log('Saving to storage...');
+            saveInputLogToStorage();
+            
+            console.log('Rendering log display...');
+            renderInputLog();
+            
+            if (statusText) statusText.textContent = `Restore selesai! ${mergedLogs.length} entri log telah dipulihkan.`;
+            console.log('✅ Restore process completed successfully');
+        }
+
+        // Read file as text (Promise-based)
+        function readFileAsText(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = e => resolve(e.target.result);
+                reader.onerror = e => reject(new Error('Gagal membaca file: ' + file.name));
+                reader.readAsText(file, 'utf-8');
+            });
+        }
+
+        // Parse CSV content to log entries
+        function parseCSVToLogs(csvText) {
+            const lines = csvText.replace(/\r/g, '').split('\n').filter(l => l.trim().length > 0);
+            if (lines.length <= 1) return [];
+            
+            const header = parseCSVLine(lines[0]).map(h => h.replace(/^\"|\"$/g,''));
+            const required = ['timestamp','namaToko','alamat','tanggal','nomorSJ','supir','noKendaraan','kacaRows'];
+            
+            for (const key of required) {
+                if (!header.includes(key)) throw new Error('Header CSV tidak valid, kurang kolom: ' + key);
+            }
+            
+            const hidx = Object.fromEntries(header.map((h,i)=>[h,i]));
+            const logs = [];
+            
+            for (let i = 1; i < lines.length; i++) {
+                try {
+                    const fields = parseCSVLine(lines[i]);
+                    const getField = (name) => (fields[hidx[name]] || '').replace(/^\"|\"$/g,'');
+                    
+                    // Parse kaca rows
+                    const kacaRowsStr = getField('kacaRows');
+                    const kacaRows = kacaRowsStr ? kacaRowsStr.split('||').map(rowStr => {
+                        const vals = rowStr.split('|');
+                        return {
+                            jenisKaca: vals[0] || '',
+                            pwd: vals[1] || '',
+                            noDo: vals[2] || '',
+                            ukuran: vals[3] || '',
+                            box: vals[4] || '',
+                            lbr: vals[5] || '',
+                            totalLbr: vals[6] || ''
+                        };
+                    }) : [];
+                    
+                    const log = {
+                        id: Date.now() + Math.random(), // Generate new ID for restore
+                        timestamp: getField('timestamp'),
+                        data: {
+                            namaToko: getField('namaToko'),
+                            alias: getField('alias') || '',
+                            alamat: getField('alamat').replace(/\\n/g, '\n'),
+                            tanggal: getField('tanggal'),
+                            nomorSJ: getField('nomorSJ'),
+                            supir: getField('supir'),
+                            noKendaraan: getField('noKendaraan'),
+                            kacaData: {
+                                rows: kacaRows,
+                                footer: {
+                                    cont: getField('kacaFooterCont') || '',
+                                    seal: getField('kacaFooterSeal') || '',
+                                    grandTotal: getField('kacaFooterGrandTotal') || ''
+                                }
+                            }
+                        }
+                    };
+                    
+                    logs.push(log);
+                } catch (err) {
+                    console.warn(`Gagal parse baris ${i + 1}:`, err);
+                }
+            }
+            
+            return logs;
+        }
+
+        // Parse JSON content to log entries
+        function parseJSONToLogs(jsonText) {
+            try {
+                const data = JSON.parse(jsonText);
+                
+                // Handle different JSON formats
+                let logs = [];
+                
+                if (Array.isArray(data)) {
+                    // Direct array of logs
+                    logs = data;
+                } else if (data.logs && Array.isArray(data.logs)) {
+                    // Object with logs property
+                    logs = data.logs;
+                } else if (data.inputLogHistory && Array.isArray(data.inputLogHistory)) {
+                    // Object with inputLogHistory property
+                    logs = data.inputLogHistory;
+                } else {
+                    throw new Error('Format JSON tidak dikenali. Harus berupa array atau object dengan property logs/inputLogHistory');
+                }
+                
+                // Validate and clean log entries
+                const validLogs = logs.filter(log => {
+                    return log && 
+                           typeof log === 'object' && 
+                           log.timestamp && 
+                           log.data && 
+                           typeof log.data === 'object';
+                }).map(log => {
+                    // Ensure ID exists
+                    if (!log.id) {
+                        log.id = Date.now() + Math.random();
+                    }
+                    
+                    // Ensure data structure is complete
+                    if (!log.data.kacaData) {
+                        log.data.kacaData = { rows: [], footer: {} };
+                    }
+                    
+                    return log;
+                });
+                
+                console.log(`Parsed JSON: ${validLogs.length} valid entries from ${logs.length} total entries`);
+                return validLogs;
+                
+            } catch (err) {
+                console.error('JSON parse error:', err);
+                throw new Error('Gagal memparse file JSON: ' + err.message);
+            }
         }
 
         function importInputLogFromCSV(csvText) {
@@ -8543,6 +8913,257 @@ No. Kendaraan: ${noKendaraan}
                     console.error('Failed to toggle log FAB:', error);
                 }
             }
+
+            // IndexedDB-backed persistence + auto-refresh for GitHub Pages (frontend-only)
+            (function enhanceLogPersistenceAndRefresh() {
+                try {
+                    function openLogDB() {
+                        return new Promise((resolve, reject) => {
+                            const req = window.indexedDB.open('sj-logs-db', 1);
+                            req.onupgradeneeded = () => {
+                                const db = req.result;
+                                if (!db.objectStoreNames.contains('kv')) {
+                                    db.createObjectStore('kv', { keyPath: 'key' });
+                                }
+                            };
+                            req.onsuccess = () => resolve(req.result);
+                            req.onerror = () => reject(req.error);
+                        });
+                    }
+
+                    async function idbSet(key, value) {
+                        try {
+                            const db = await openLogDB();
+                            await new Promise((resolve, reject) => {
+                                const tx = db.transaction('kv', 'readwrite');
+                                tx.oncomplete = resolve;
+                                tx.onerror = () => reject(tx.error);
+                                tx.objectStore('kv').put({ key, value });
+                            });
+                            db.close();
+                        } catch (e) {
+                            console.warn('IDB set failed; continuing with localStorage only', e);
+                        }
+                    }
+
+                    async function idbGet(key) {
+                        try {
+                            const db = await openLogDB();
+                            const val = await new Promise((resolve, reject) => {
+                                const tx = db.transaction('kv', 'readonly');
+                                tx.onerror = () => reject(tx.error);
+                                const req = tx.objectStore('kv').get(key);
+                                req.onsuccess = () => resolve(req.result ? req.result.value : undefined);
+                                req.onerror = () => reject(req.error);
+                            });
+                            db.close();
+                            return val;
+                        } catch (e) {
+                            console.warn('IDB get failed; falling back to localStorage', e);
+                            return undefined;
+                        }
+                    }
+
+                    const originalLoad = typeof loadInputLogFromStorage === 'function' ? loadInputLogFromStorage : null;
+                    const originalSave = typeof saveInputLogToStorage === 'function' ? saveInputLogToStorage : null;
+
+                    window.loadInputLogFromStorage = async function() {
+                        try {
+                            const fromIDB = await idbGet('inputLogHistory');
+                            if (Array.isArray(fromIDB)) {
+                                inputLogHistory = fromIDB;
+                                console.log('✅ Loaded input log from IndexedDB:', inputLogHistory.length, 'entries');
+                                if (typeof renderInputLog === 'function') renderInputLog();
+                                if (typeof updateKacaSuggestionsFromLogs === 'function') updateKacaSuggestionsFromLogs();
+                                if (typeof window.refreshNomorSJWarningNow === 'function') window.refreshNomorSJWarningNow();
+                                return;
+                            }
+                        } catch (e) {
+                            console.warn('Load from IndexedDB failed, will try fallback', e);
+                        }
+
+                        if (originalLoad) {
+                            try { originalLoad(); return; } catch (e) { console.warn('Original load failed', e); }
+                        }
+                        try {
+                            const saved = (typeof storageManager !== 'undefined' && storageManager.load)
+                                ? storageManager.load('inputLogHistory') : null;
+                            if (saved) {
+                                inputLogHistory = saved;
+                                if (typeof renderInputLog === 'function') renderInputLog();
+                            }
+                        } catch (e) {
+                            console.warn('Fallback localStorage load failed', e);
+                        }
+                    };
+
+                    window.saveInputLogToStorage = function() {
+                        try {
+                            if (typeof storageManager !== 'undefined' && storageManager.save) {
+                                storageManager.save('inputLogHistory', inputLogHistory);
+                            }
+                            if (typeof updateKacaSuggestionsFromLogs === 'function') updateKacaSuggestionsFromLogs();
+                            if (typeof window.refreshNomorSJWarningNow === 'function') window.refreshNomorSJWarningNow();
+                        } catch (e) {
+                            console.warn('localStorage save fallback failed', e);
+                        }
+                        idbSet('inputLogHistory', inputLogHistory);
+                        console.log('💾 Input log mirrored to IndexedDB:', inputLogHistory.length, 'entries');
+                    };
+
+                    window.addEventListener('storage', function(e) {
+                        try {
+                            if (e && e.key === 'inputLogHistory' && e.newValue) {
+                                const parsed = JSON.parse(e.newValue);
+                                if (Array.isArray(parsed)) {
+                                    inputLogHistory = parsed;
+                                    if (typeof renderInputLog === 'function') renderInputLog();
+                                    if (typeof updateKacaSuggestionsFromLogs === 'function') updateKacaSuggestionsFromLogs();
+                                    if (typeof window.refreshNomorSJWarningNow === 'function') window.refreshNomorSJWarningNow();
+                                }
+                            }
+                        } catch (err) {
+                            console.warn('Failed to process storage event', err);
+                        }
+                    });
+
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', () => {
+                            if (typeof window.loadInputLogFromStorage === 'function') window.loadInputLogFromStorage();
+                        });
+                    } else {
+                        if (typeof window.loadInputLogFromStorage === 'function') window.loadInputLogFromStorage();
+                    }
+                } catch (error) {
+                    console.warn('Enhance persistence/init failed; app will continue with existing storage only', error);
+                }
+            })();
+
+            // UI: Tampilkan ukuran pemakaian storage (origin) dan ukuran log IndexedDB (perkiraan)
+            (function initStorageUsageIndicator() {
+                try {
+                    function ensureBadgeEl() {
+                        let badge = document.getElementById('storageUsageBadge');
+                        if (badge) return badge;
+                        badge = document.createElement('div');
+                        badge.id = 'storageUsageBadge';
+                        badge.textContent = 'Storage: ...';
+                        badge.style.fontSize = '12px';
+                        badge.style.color = '#555';
+                        badge.style.padding = '4px 8px';
+                        badge.style.border = '1px solid #e1e5e9';
+                        badge.style.borderRadius = '12px';
+                        badge.style.background = '#f8f9fa';
+                        badge.style.display = 'inline-block';
+                        badge.style.marginLeft = '8px';
+                        badge.style.whiteSpace = 'nowrap';
+
+                        // Place next to refresh button in kaca-header
+                        const refreshBtn = document.querySelector('.btn-refresh-page');
+                        if (refreshBtn && refreshBtn.parentNode) {
+                            refreshBtn.parentNode.insertBefore(badge, refreshBtn.nextSibling);
+                            return badge;
+                        }
+                        // Fallback: append to body
+                        document.body.appendChild(badge);
+                        return badge;
+                    }
+
+                    function formatBytes(bytes) {
+                        if (!bytes && bytes !== 0) return '...';
+                        if (bytes < 1024) return bytes + ' B';
+                        if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB';
+                        if (bytes < 1024 * 1024 * 1024) return (bytes / 1024 / 1024).toFixed(2) + ' MB';
+                        return (bytes / 1024 / 1024 / 1024).toFixed(2) + ' GB';
+                    }
+
+                    async function readLogRecordBytes() {
+                        // Read IDB record and estimate bytes via Blob of JSON
+                        try {
+                            const open = (name, ver=1) => new Promise((res, rej) => {
+                                const req = indexedDB.open(name, ver);
+                                req.onsuccess = () => res(req.result);
+                                req.onerror = () => rej(req.error);
+                            });
+                            const db = await open('sj-logs-db', 1);
+                            const value = await new Promise((res, rej) => {
+                                const tx = db.transaction('kv', 'readonly');
+                                const req = tx.objectStore('kv').get('inputLogHistory');
+                                req.onsuccess = () => res(req.result ? req.result.value : undefined);
+                                req.onerror = () => rej(req.error);
+                            });
+                            db.close();
+                            const json = JSON.stringify(value || []);
+                            return new Blob([json]).size; // UTF-8 size approximation
+                        } catch (_) {
+                            return undefined;
+                        }
+                    }
+
+                    async function measureAndRender() {
+                        const badge = ensureBadgeEl();
+                        try {
+                            const est = await (navigator.storage && navigator.storage.estimate ? navigator.storage.estimate() : Promise.resolve({}));
+                            const usage = est && typeof est.usage === 'number' ? est.usage : undefined;
+                            const quota = est && typeof est.quota === 'number' ? est.quota : undefined;
+                            const logBytes = await readLogRecordBytes();
+                            
+                            const parts = [];
+                            if (usage !== undefined) parts.push('Used ' + formatBytes(usage));
+                            if (quota !== undefined) {
+                                const remaining = quota - (usage || 0);
+                                const remainingPercent = quota > 0 ? Math.round(((quota - (usage || 0)) / quota) * 100) : 0;
+                                parts.push('of ' + formatBytes(quota) + ' (' + remainingPercent + '% free)');
+                            }
+                            if (logBytes !== undefined) parts.push('(Log ' + formatBytes(logBytes) + ')');
+                            
+                            // Add color coding based on remaining space
+                            if (quota && usage !== undefined) {
+                                const remainingPercent = ((quota - usage) / quota) * 100;
+                                if (remainingPercent < 10) {
+                                    badge.style.background = '#ffebee';
+                                    badge.style.borderColor = '#f44336';
+                                    badge.style.color = '#c62828';
+                                } else if (remainingPercent < 25) {
+                                    badge.style.background = '#fff3e0';
+                                    badge.style.borderColor = '#ff9800';
+                                    badge.style.color = '#e65100';
+                                } else {
+                                    badge.style.background = '#f8f9fa';
+                                    badge.style.borderColor = '#e1e5e9';
+                                    badge.style.color = '#555';
+                                }
+                            }
+                            
+                            badge.textContent = parts.length ? parts.join(' ') : 'Storage: N/A';
+                        } catch (e) {
+                            const badgeEl = ensureBadgeEl();
+                            badgeEl.textContent = 'Storage: N/A';
+                            badgeEl.style.background = '#f8f9fa';
+                            badgeEl.style.borderColor = '#e1e5e9';
+                            badgeEl.style.color = '#555';
+                        }
+                    }
+
+                    // Expose manual refresh
+                    window.refreshStorageUsageDisplay = measureAndRender;
+
+                    // Initial render after DOM ready
+                    if (document.readyState === 'loading') {
+                        document.addEventListener('DOMContentLoaded', measureAndRender);
+                    } else {
+                        measureAndRender();
+                    }
+
+                    // Periodic refresh
+                    setInterval(measureAndRender, 10000);
+
+                    // Refresh after localStorage cross-tab updates
+                    window.addEventListener('storage', () => measureAndRender());
+                } catch (err) {
+                    // No-op if anything fails; UI remains unaffected
+                }
+            })();
     </script>
 </body>
 </html>
