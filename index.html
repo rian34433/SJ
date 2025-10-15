@@ -2650,8 +2650,8 @@
         .right-section.log-fab-open .log-action-buttons { display: flex; }
         .log-fab {
             position: absolute;
-            right: 5px;
-            bottom: 5px;
+            right: -11px;
+            bottom: 0px;
             width: 35px;
             height: 35px;
             border-radius: 50%;
@@ -6942,10 +6942,7 @@ No. Kendaraan: ${noKendaraan}
                 // Add to beginning of array (newest first)
                 inputLogHistory.unshift(logEntry);
                 
-                // Keep only last 50 entries to prevent memory issues
-                if (inputLogHistory.length > 50) {
-                    inputLogHistory = inputLogHistory.slice(0, 50);
-                }
+                // No limit on log entries - keep all data
             }
             
             // Save to localStorage
@@ -8223,10 +8220,7 @@ No. Kendaraan: ${noKendaraan}
 
             // Merge strategy: append imported at the beginning (newer first)
             inputLogHistory = [...imported, ...inputLogHistory];
-            // Keep at most 500 to avoid overgrowth
-            if (inputLogHistory.length > 500) {
-                inputLogHistory = inputLogHistory.slice(0, 500);
-            }
+            // No limit on log entries - keep all data
 
             saveInputLogToStorage();
             renderInputLog();
