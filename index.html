@@ -7739,11 +7739,60 @@ No. Kendaraan: ${noKendaraan}
                 return;
             }
 
+            // Header dengan nama yang lebih jelas dan rapi
             const header = [
-                'timestamp','namaToko','alias','alamat','tanggal','nomorSJ','supir','noKendaraan','kacaRows','kacaFooterCont','kacaFooterSeal','kacaFooterGrandTotal'
+                'Timestamp',
+                'Nama Toko',
+                'Alias',
+                'Alamat',
+                'Tanggal',
+                'Nomor SJ',
+                'Supir',
+                'No Kendaraan',
+                'Jenis Kaca PWD',
+                'No DO',
+                'Ukuran=Box@Lbr',
+                'Total Lebar',
+                'Container',
+                'Seal',
+                'Grand Total'
             ];
 
-            const lines = [header.join(',')];
+            // Helper function untuk format field - format sederhana tanpa quote berlebihan
+            const formatCSVField = (val) => {
+                if (val === null || val === undefined) return '';
+                let str = String(val).trim();
+                // Replace newlines dengan spasi
+                str = str.replace(/\n/g, ' ').replace(/\r/g, ' ');
+                // Hanya quote jika mengandung separator atau quote
+                if (str.includes(separator) || str.includes('"')) {
+                    return '"' + str.replace(/"/g, '""') + '"';
+                }
+                return str;
+            };
+
+            const buildJenisKacaPwd = (row = {}) => {
+                const jenis = (row.jenisKaca || '').toString().trim();
+                const pwd = (row.pwd || '').toString().trim();
+                if (!jenis && !pwd) return '';
+                if (jenis && pwd) return `${jenis} ${pwd}`;
+                return jenis || pwd;
+            };
+
+            const buildUkuranBoxLbr = (row = {}) => {
+                const ukuran = (row.ukuran || '').toString().trim();
+                const box = (row.box || '').toString().trim();
+                const lbr = (row.lbr || '').toString().trim();
+                if (!ukuran && !box && !lbr) return '';
+                return `${ukuran}=${box}@${lbr}`;
+            };
+
+            const lines = [];
+            // Gunakan semicolon untuk kompatibilitas Excel Indonesia (lebih umum digunakan)
+            const separator = ';';
+            
+            // Add UTF-8 BOM for Excel compatibility
+            lines.push('\uFEFF' + header.map(formatCSVField).join(separator));
 
             inputLogHistory.forEach(entry => {
                 const d = entry.data || {};
@@ -7751,33 +7800,52 @@ No. Kendaraan: ${noKendaraan}
                 const rows = Array.isArray(kaca) ? kaca : (kaca.rows || []);
                 const footer = kaca.footer || {};
 
-                // Serialize kaca rows as single string with pipes
-                const rowsStr = rows.map(r => {
-                    const vals = [r.jenisKaca||'', r.pwd||'', r.noDo||'', r.ukuran||'', r.box||'', r.lbr||'', r.totalLbr||''];
-                    return vals.map(v => (''+v).replace(/\n/g,' ').replace(/\r/g,' ').replace(/\|/g,'/')).join('|');
-                }).join('||');
-
-                const rec = [
-                    entry.timestamp || '',
-                    d.namaToko || '',
-                    d.alias || '',
-                    (d.alamat||'').replace(/\n/g,'\\n'),
-                    d.tanggal || '',
-                    d.nomorSJ || '',
-                    d.supir || '',
-                    d.noKendaraan || '',
-                    rowsStr,
-                    footer.cont || '',
-                    footer.seal || '',
-                    footer.grandTotal || ''
-                ];
-
-                // CSV escape each field (wrap in quotes and escape quotes)
-                const csvLine = rec.map(val => '"' + (''+val).replace(/"/g,'""') + '"').join(',');
-                lines.push(csvLine);
+                // Jika ada rows, buat satu baris per row kaca untuk lebih rapi
+                if (rows && rows.length > 0) {
+                    rows.forEach((row, idx) => {
+                        const rec = [
+                            idx === 0 ? (entry.timestamp || '') : '', // Timestamp hanya di baris pertama
+                            idx === 0 ? (d.namaToko || '') : '',
+                            idx === 0 ? (d.alias || '') : '',
+                            idx === 0 ? (d.alamat || '').replace(/\n/g, ' ') : '',
+                            idx === 0 ? (d.tanggal || '') : '',
+                            idx === 0 ? (d.nomorSJ || '') : '',
+                            idx === 0 ? (d.supir || '') : '',
+                            idx === 0 ? (d.noKendaraan || '') : '',
+                            buildJenisKacaPwd(row),
+                            row.noDo || '',
+                            buildUkuranBoxLbr(row),
+                            row.totalLbr || '',
+                            idx === rows.length - 1 ? (footer.cont || '') : '', // Footer hanya di baris terakhir
+                            idx === rows.length - 1 ? (footer.seal || '') : '',
+                            idx === rows.length - 1 ? (footer.grandTotal || '') : ''
+                        ];
+                        lines.push(rec.map(formatCSVField).join(separator));
+                    });
+                } else {
+                    // Jika tidak ada rows, tetap export data utama
+                    const rec = [
+                        entry.timestamp || '',
+                        d.namaToko || '',
+                        d.alias || '',
+                        (d.alamat || '').replace(/\n/g, ' '),
+                        d.tanggal || '',
+                        d.nomorSJ || '',
+                        d.supir || '',
+                        d.noKendaraan || '',
+                        '', '', '', '', // Kolom kaca kosong (Jenis Kaca+PWD s/d Total Lebar)
+                        footer.cont || '',
+                        footer.seal || '',
+                        footer.grandTotal || ''
+                    ];
+                    lines.push(rec.map(formatCSVField).join(separator));
+                }
             });
 
-            const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' });
+            // Gunakan \r\n untuk line ending Windows dan pastikan format benar
+            const csvContent = lines.join('\r\n');
+            // Gunakan text/csv untuk CSV dengan semicolon separator
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
