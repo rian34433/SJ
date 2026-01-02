@@ -4816,16 +4816,41 @@
                 const nomorSJInput = document.getElementById('nomorSJ');
                 const nomorSJ = nomorSJInput ? nomorSJInput.value.trim() : '';
                 
-                // Get current date - use formatDate from stok section if available
-                const today = new Date();
+                // Get date from input field
+                const tanggalInput = document.getElementById('tanggal');
+                const tanggalValue = tanggalInput ? tanggalInput.value : '';
+                
                 let formattedDate;
-                if (typeof formatDate === 'function') {
-                    formattedDate = formatDate(today.toISOString().split('T')[0]);
+                if (tanggalValue) {
+                    // If we have a date from input, use it
+                    if (typeof formatDate === 'function') {
+                        formattedDate = formatDate(tanggalValue);
+                    } else {
+                        // Manual formatting if formatDate not available
+                        // Assume input type="date" returns YYYY-MM-DD
+                        const parts = tanggalValue.split('-');
+                        if (parts.length === 3) {
+                            formattedDate = `${parts[2]}/${parts[1]}/${parts[0]}`;
+                        } else {
+                            // Fallback to today if format unexpected
+                            const today = new Date();
+                            const day = String(today.getDate()).padStart(2, '0');
+                            const month = String(today.getMonth() + 1).padStart(2, '0');
+                            const year = today.getFullYear();
+                            formattedDate = `${day}/${month}/${year}`;
+                        }
+                    }
                 } else {
-                    const day = String(today.getDate()).padStart(2, '0');
-                    const month = String(today.getMonth() + 1).padStart(2, '0');
-                    const year = today.getFullYear();
-                    formattedDate = `${day}/${month}/${year}`;
+                    // Fallback to today if no input
+                    const today = new Date();
+                    if (typeof formatDate === 'function') {
+                        formattedDate = formatDate(today.toISOString().split('T')[0]);
+                    } else {
+                        const day = String(today.getDate()).padStart(2, '0');
+                        const month = String(today.getMonth() + 1).padStart(2, '0');
+                        const year = today.getFullYear();
+                        formattedDate = `${day}/${month}/${year}`;
+                    }
                 }
                 
                 // Ensure stokData is loaded FIRST before checking for old transactions
@@ -9636,6 +9661,10 @@ No. Kendaraan: ${noKendaraan}
             // Optional: toast could be added here if needed
             
             console.log('💾 Saved input log entry:', logEntry);
+
+            // Sync with Stock History
+            // This ensures stock transactions are updated immediately when log is saved or edited
+            recordStokTransactionsFromSuratJalan().catch(err => console.error('Stock sync failed:', err));
         }
 
         // Helper: check if No. SJ exists in input log
@@ -13085,7 +13114,7 @@ No. Kendaraan: ${noKendaraan}
         <datalist id="ukuranKacaList"></datalist>
         <input type="text" id="harga" placeholder="Harga Beli" class="field-pembelian" oninput="formatRupiahInput(this)">
         <input type="text" id="hargaJual" placeholder="Jual" class="field-penjualan" style="display: none;" disabled oninput="formatRupiahInput(this)">
-        <input type="number" id="masuk" placeholder="Kaca Masuk" min="0" oninput="toggleJumlahMasukKeluar()" class="field-pembelian">
+        <input type="text" id="masuk" placeholder="Kaca Masuk" min="0" oninput="formatRupiahInput(this); toggleJumlahMasukKeluar()" class="field-pembelian">
         <input type="number" id="keluar" placeholder="Kaca Keluar" min="0" oninput="toggleJumlahMasukKeluar()" class="field-penjualan" style="display: none;" disabled>
         <button type="button" id="submitBtn" onclick="tambahData()">Tambah Data</button>
         <button type="button" id="cancelEditBtn" class="cancel-edit-btn action-btn" onclick="cancelEdit()" style="display: none;">Batal Edit</button>
@@ -14342,11 +14371,14 @@ No. Kendaraan: ${noKendaraan}
     function toggleJumlahMasukKeluar() {
       const masuk = document.getElementById("masuk");
       const keluar = document.getElementById("keluar");
+      
+      const masukVal = parseRupiah(masuk.value);
+      const keluarVal = parseNumber(keluar.value);
 
-      if (masuk.value && masuk.value > 0) {
+      if (masukVal > 0) {
         keluar.disabled = true;
         keluar.value = '';
-      } else if (keluar.value && keluar.value > 0) {
+      } else if (keluarVal > 0) {
         masuk.disabled = true;
         masuk.value = '';
       } else {
@@ -14366,7 +14398,7 @@ No. Kendaraan: ${noKendaraan}
           // Parse values - gunakan parseRupiah untuk harga (input text) dan parseNumber untuk jumlah (input number)
           const harga = parseRupiah(document.getElementById("harga").value);
           const hargaJual = parseRupiah(document.getElementById("hargaJual").value);
-          const masuk = parseNumber(document.getElementById("masuk").value);
+          const masuk = parseRupiah(document.getElementById("masuk").value);
           const keluar = parseNumber(document.getElementById("keluar").value);
 
       if (!nama || !tanggal || !nota || !tebal || !ukuran) {
@@ -14733,7 +14765,7 @@ No. Kendaraan: ${noKendaraan}
       // Format harga dengan separator ribuan
       document.getElementById("harga").value = entry.harga ? entry.harga.toLocaleString('id-ID') : '';
       document.getElementById("hargaJual").value = entry.hargaJual ? entry.hargaJual.toLocaleString('id-ID') : '';
-      document.getElementById("masuk").value = entry.masuk;
+      document.getElementById("masuk").value = entry.masuk ? entry.masuk.toLocaleString('id-ID') : '';
       document.getElementById("keluar").value = entry.keluar;
       updateHargaBeliPlaceholder();
       updateHargaJualPlaceholder();
