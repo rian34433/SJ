@@ -4863,124 +4863,30 @@
                     }
                 }
                 
-                // If editing, delete old transactions with the same logEntryId (more precise than nota)
-                // IMPORTANT: Do this AFTER loading stokData to ensure we have the latest data
-                // Use lastLogEntryId which is set when log entry is created/edited
+                // IDENTIFY EXISTING TRANSACTIONS (New Logic: Update instead of Delete-then-Insert)
                 const currentLogEntryId = lastLogEntryId;
                 const originalNomorSJ = originalNomorSJForDeletion || (editingLogEntry && editingLogEntry.entry ? editingLogEntry.entry.data?.nomorSJ || '' : '');
-                const newNomorSJ = nomorSJ || '';
+                
+                let existingTransactions = [];
                 
                 if (currentLogEntryId) {
-                    // Find and delete all transactions with this logEntryId (most precise method)
-                    // Make sure we're working with the actual stokData array
-                    const currentStokData = window.stokData || [];
-                    
-                    // Debug: Log all transactions to see what we're working with
-                    console.log(`🔍 Searching for transactions with logEntryId: "${currentLogEntryId}"`);
-                    console.log(`📊 Total stokData entries: ${currentStokData.length}`);
-                    
-                    const transactionsToDelete = currentStokData.filter(entry => {
-                        const matches = entry.logEntryId === currentLogEntryId;
-                        
-                        if (matches) {
-                            console.log(`  ✓ Found matching transaction: ID=${entry.id}, logEntryId="${entry.logEntryId}", nota="${entry.nota}", tebal="${entry.tebal}", ukuran="${entry.ukuran}", keluar=${entry.keluar}`);
-                        }
-                        
-                        return matches;
+                    // Find existing transactions for this log ID
+                    existingTransactions = window.stokData.filter(entry => entry.logEntryId === currentLogEntryId);
+                    // Sort by ID (assuming creation order) to match with form rows order
+                    existingTransactions.sort((a, b) => {
+                        const idA = typeof a.id === 'string' ? parseFloat(a.id) : a.id;
+                        const idB = typeof b.id === 'string' ? parseFloat(b.id) : b.id;
+                        return idA - idB;
                     });
-                    
-                    if (transactionsToDelete.length > 0) {
-                        console.log(`🗑️ Deleting ${transactionsToDelete.length} old transactions for logEntryId: ${currentLogEntryId}`);
-                        
-                        // Delete from IndexedDB first, then remove from array
-                        for (const transaction of transactionsToDelete) {
-                            // Delete from IndexedDB if deleteEntryFromDB function is available
-                            // Try multiple ways to access the function
-                            let deleteFunc = null;
-                            if (typeof window.deleteEntryFromDB === 'function') {
-                                deleteFunc = window.deleteEntryFromDB;
-                            } else if (typeof deleteEntryFromDB === 'function') {
-                                deleteFunc = deleteEntryFromDB;
-                            }
-                            
-                            if (deleteFunc) {
-                                try {
-                                    await deleteFunc(transaction.id);
-                                    console.log(`  ✓ Deleted transaction ID ${transaction.id} from IndexedDB`);
-                                } catch (error) {
-                                    console.error(`  ✗ Error deleting transaction ID ${transaction.id} from DB:`, error);
-                                }
-                            } else {
-                                console.warn('deleteEntryFromDB function not available, only removing from array');
-                            }
-                            
-                            // Remove from stokData array
-                            const index = window.stokData.findIndex(e => e.id === transaction.id);
-                            if (index !== -1) {
-                                window.stokData.splice(index, 1);
-                                console.log(`  ✓ Removed transaction ID ${transaction.id} from array`);
-                            } else {
-                                console.warn(`  ⚠️ Transaction ID ${transaction.id} not found in array`);
-                            }
-                        }
-                        
-                        // Update UI immediately after deletion
-                        if (typeof updateStokTable === 'function') {
-                            updateStokTable();
-                        }
-                        if (typeof updateTotalSisa === 'function') {
-                            updateTotalSisa();
-                        }
-                        if (typeof updateJenisKacaList === 'function') {
-                            updateJenisKacaList();
-                        }
-                        if (typeof updateUkuranKacaList === 'function') {
-                            updateUkuranKacaList();
-                        }
-                        
-                        console.log('✅ Old transactions deleted and UI updated');
-                    } else {
-                        console.log(`ℹ️ No old transactions found for logEntryId: ${currentLogEntryId}`);
-                    }
+                    console.log(`Found ${existingTransactions.length} existing transactions for log ${currentLogEntryId}`);
                 } else if (originalNomorSJ) {
-                    // Fallback: if logEntryId not available, use nota (for backward compatibility with old data)
-                    const currentStokData = window.stokData || [];
-                    const transactionsToDelete = currentStokData.filter(entry => {
+                    // Fallback: if logEntryId not available, use nota (for backward compatibility)
+                    existingTransactions = window.stokData.filter(entry => {
                         const entryNota = entry.nota ? entry.nota.trim() : '';
                         const targetNota = originalNomorSJ.trim();
-                        return entryNota === targetNota && !entry.logEntryId; // Only delete if no logEntryId (old data)
+                        return entryNota === targetNota && !entry.logEntryId; 
                     });
-                    
-                    if (transactionsToDelete.length > 0) {
-                        console.log(`🗑️ Deleting ${transactionsToDelete.length} old transactions (without logEntryId) for nota: ${originalNomorSJ}`);
-                        
-                        for (const transaction of transactionsToDelete) {
-                            let deleteFunc = null;
-                            if (typeof window.deleteEntryFromDB === 'function') {
-                                deleteFunc = window.deleteEntryFromDB;
-                            } else if (typeof deleteEntryFromDB === 'function') {
-                                deleteFunc = deleteEntryFromDB;
-                            }
-                            
-                            if (deleteFunc) {
-                                try {
-                                    await deleteFunc(transaction.id);
-                                } catch (error) {
-                                    console.error(`Error deleting transaction ID ${transaction.id} from DB:`, error);
-                                }
-                            }
-                            
-                            const index = window.stokData.findIndex(e => e.id === transaction.id);
-                            if (index !== -1) {
-                                window.stokData.splice(index, 1);
-                            }
-                        }
-                        
-                        if (typeof updateStokTable === 'function') updateStokTable();
-                        if (typeof updateTotalSisa === 'function') updateTotalSisa();
-                        if (typeof updateJenisKacaList === 'function') updateJenisKacaList();
-                        if (typeof updateUkuranKacaList === 'function') updateUkuranKacaList();
-                    }
+                    console.log(`Found ${existingTransactions.length} existing transactions for nota ${originalNomorSJ}`);
                 }
                 
                 // Clear originalNomorSJForDeletion after use
@@ -4988,9 +4894,12 @@
                 
                 // Get all kaca rows
                 const kacaRows = document.querySelectorAll('#kacaTableBody tr');
-                const transactions = [];
-
-                kacaRows.forEach((row, index) => {
+                const transactionsToSave = [];
+                const processedIds = new Set();
+                
+                // Process each row from the form
+                for (let index = 0; index < kacaRows.length; index++) {
+                    const row = kacaRows[index];
                     // Cache querySelector results for better performance
                     const jenisKacaInput = row.querySelector('.jenis-kaca');
                     const ukuranInput = row.querySelector('.ukuran');
@@ -5003,7 +4912,7 @@
                     const totalLbrValue = totalLbrInput?.value?.trim() || '';
                     
                     // Skip if no jenis kaca or ukuran
-                    if (!jenisKaca || !ukuran) return;
+                    if (!jenisKaca || !ukuran) continue;
                     
                     // Parse total LBR
                     let totalLbr = 0;
@@ -5015,7 +4924,7 @@
                     }
                     
                     // Skip if total LBR is 0 or invalid
-                    if (!totalLbr || totalLbr <= 0) return;
+                    if (!totalLbr || totalLbr <= 0) continue;
                     
                     // Parse harga jual
                     let hargaJual = 0;
@@ -5025,28 +4934,20 @@
                     }
                     
                     // Get harga beli from stok data (if available)
-                    // First, check if harga was selected from dropdown (stored in data attribute)
                     let hargaBeli = 0;
-                    // Force update harga one more time right before reading it
                     if (ukuranInput) {
                         forceUpdateHargaForUkuran(ukuranInput);
                     }
                     const selectedHarga = ukuranInput ? ukuranInput.getAttribute('data-selected-harga') : null;
                     
                     if (selectedHarga) {
-                        // Use harga from selected dropdown option
                         const hargaValues = selectedHarga.split(',').map(h => parseFloat(h.trim())).filter(h => !isNaN(h) && h > 0);
                         if (hargaValues.length > 0) {
-                            // Use the first harga (or average if multiple)
                             hargaBeli = hargaValues[0];
                         }
                     }
                     
-                    // If no harga from dropdown, try to find from stok data
-                    // But prioritize using harga from selected dropdown option for stock deduction
                     if (selectedHarga && window.stokData && window.stokData.length > 0) {
-                        // If harga was selected, find matching stok with the same harga
-                        // This ensures we deduct stock from the correct harga group
                         const hargaValues = selectedHarga.split(',').map(h => parseFloat(h.trim())).filter(h => !isNaN(h) && h > 0);
                         if (hargaValues.length > 0) {
                             const targetHarga = hargaValues[0];
@@ -5061,7 +4962,6 @@
                             }
                         }
                     } else if (!hargaBeli && window.stokData && window.stokData.length > 0) {
-                        // If no harga selected, find any matching stok entry (fallback)
                         const matchingStok = window.stokData.find(entry => 
                             entry.tebal === jenisKaca && 
                             entry.ukuran === ukuran &&
@@ -5072,73 +4972,145 @@
                         }
                     }
                     
-                    // Use nomor SJ as nota, fallback to default format if nomor SJ is empty
                     const notaValue = nomorSJ || `SJ-${formattedDate.replace(/\//g, '')}-${index + 1}`;
+                    
+                    // Determine ID: Use existing ID if available, otherwise generate new
+                    let transactionId;
+                    let existingEntry = null;
+                    let isUpdate = false;
+                    
+                    if (index < existingTransactions.length) {
+                        existingEntry = existingTransactions[index];
+                        transactionId = existingEntry.id;
+                        isUpdate = true;
+                    } else {
+                        transactionId = Date.now() + index; // New ID
+                        isUpdate = false;
+                    }
                     
                     // Create transaction entry
                     const transaction = {
-                        id: Date.now() + index, // Unique ID
+                        id: transactionId,
                         nama: namaToko,
                         tanggal: formattedDate,
-                        nota: notaValue, // Use nomor SJ from input field
+                        nota: notaValue,
                         tebal: jenisKaca,
                         ukuran: ukuran,
                         harga: hargaBeli > 0 ? hargaBeli : undefined,
                         hargaJual: hargaJual > 0 ? hargaJual : undefined,
                         masuk: 0,
                         keluar: totalLbr,
-                        logEntryId: lastLogEntryId || null // Link to log entry
+                        logEntryId: lastLogEntryId || null,
+                        lastModified: new Date().toISOString()
                     };
                     
-                    transactions.push(transaction);
-                });
+                    // Add history if updating
+                    if (isUpdate && existingEntry) {
+                        const history = existingEntry.history || [];
+                        const changes = [];
+                        
+                        if (existingEntry.tebal !== transaction.tebal) changes.push(`tebal: ${existingEntry.tebal} -> ${transaction.tebal}`);
+                        if (existingEntry.ukuran !== transaction.ukuran) changes.push(`ukuran: ${existingEntry.ukuran} -> ${transaction.ukuran}`);
+                        if (existingEntry.keluar !== transaction.keluar) changes.push(`keluar: ${existingEntry.keluar} -> ${transaction.keluar}`);
+                        if (existingEntry.hargaJual !== transaction.hargaJual) changes.push(`hargaJual: ${existingEntry.hargaJual} -> ${transaction.hargaJual}`);
+                        
+                        if (changes.length > 0) {
+                            history.push({
+                                date: new Date().toISOString(),
+                                action: 'update',
+                                changes: changes.join(', ')
+                            });
+                            transaction.history = history;
+                        } else {
+                            transaction.history = history; // Preserve history
+                        }
+                    } else {
+                        transaction.history = [{ date: new Date().toISOString(), action: 'created' }];
+                    }
+                    
+                    transactionsToSave.push({ data: transaction, isUpdate: isUpdate });
+                    processedIds.add(transactionId);
+                }
                 
-                // Record all transactions
-                if (transactions.length > 0) {
-                    // Add each transaction to stokData and IndexedDB
-                    for (const transaction of transactions) {
+                // SAVE (Update or Insert)
+                if (transactionsToSave.length > 0) {
+                    for (const item of transactionsToSave) {
+                        const transaction = item.data;
                         try {
-                            // Add to stokData array
-                            if (Array.isArray(window.stokData)) {
-                                window.stokData.unshift(transaction);
-                            }
-                            
-                            // Add to IndexedDB if addEntry function is available
-                            if (typeof addEntry === 'function') {
-                                await addEntry(transaction);
+                            if (item.isUpdate) {
+                                // Update existing
+                                const idx = window.stokData.findIndex(e => e.id === transaction.id);
+                                if (idx !== -1) window.stokData[idx] = transaction;
+                                
+                                if (typeof updateEntry === 'function') {
+                                    await updateEntry(transaction);
+                                }
+                                console.log(`Updated transaction ID ${transaction.id}`);
+                            } else {
+                                // Add new
+                                if (Array.isArray(window.stokData)) {
+                                    window.stokData.unshift(transaction);
+                                }
+                                
+                                if (typeof addEntry === 'function') {
+                                    await addEntry(transaction);
+                                }
+                                console.log(`Created transaction ID ${transaction.id}`);
                             }
                         } catch (error) {
-                            console.error('Error recording transaction:', transaction, error);
+                            console.error('Error saving transaction:', transaction, error);
                         }
                     }
-                    
-                    // Sync stokData local variable with window.stokData
-                    if (typeof window.stokData !== 'undefined' && Array.isArray(window.stokData)) {
-                        if (typeof stokData !== 'undefined') {
-                            // Update local stokData to match window.stokData
-                            stokData = [...window.stokData];
-                        }
-                    }
-                    
-                    // Update stok table and related UI if functions are available
-                    if (typeof updateStokTable === 'function') {
-                        updateStokTable();
-                    }
-                    if (typeof updateTotalSisa === 'function') {
-                        updateTotalSisa();
-                    }
-                    if (typeof updateNamaTokoList === 'function') {
-                        updateNamaTokoList();
-                    }
-                    if (typeof updateJenisKacaList === 'function') {
-                        updateJenisKacaList();
-                    }
-                    if (typeof updateUkuranKacaList === 'function') {
-                        updateUkuranKacaList();
-                    }
-                    
-                    console.log(`Recorded ${transactions.length} stok transactions from surat jalan`);
                 }
+                
+                // DELETE EXTRA (Existing transactions that are no longer in the form)
+                const transactionsToDelete = existingTransactions.filter(t => !processedIds.has(t.id));
+                if (transactionsToDelete.length > 0) {
+                    console.log(`Deleting ${transactionsToDelete.length} extra transactions (items removed from form)`);
+                    for (const transaction of transactionsToDelete) {
+                        try {
+                            let deleteFunc = null;
+                            if (typeof window.deleteEntryFromDB === 'function') deleteFunc = window.deleteEntryFromDB;
+                            else if (typeof deleteEntryFromDB === 'function') deleteFunc = deleteEntryFromDB;
+                            
+                            if (deleteFunc) await deleteFunc(transaction.id);
+                            
+                            const index = window.stokData.findIndex(e => e.id === transaction.id);
+                            if (index !== -1) window.stokData.splice(index, 1);
+                            
+                        } catch (error) {
+                            console.error(`Error deleting transaction ID ${transaction.id}:`, error);
+                        }
+                    }
+                }
+                    
+                // Sync stokData local variable with window.stokData
+                if (typeof window.stokData !== 'undefined' && Array.isArray(window.stokData)) {
+                    if (typeof stokData !== 'undefined') {
+                        // Update local stokData to match window.stokData
+                        stokData = [...window.stokData];
+                    }
+                }
+                    
+                // Update stok table and related UI if functions are available
+                if (typeof updateStokTable === 'function') {
+                    updateStokTable();
+                }
+                if (typeof updateTotalSisa === 'function') {
+                    updateTotalSisa();
+                }
+                if (typeof updateNamaTokoList === 'function') {
+                    updateNamaTokoList();
+                }
+                if (typeof updateJenisKacaList === 'function') {
+                    updateJenisKacaList();
+                }
+                if (typeof updateUkuranKacaList === 'function') {
+                    updateUkuranKacaList();
+                }
+                    
+                console.log(`Processed ${transactionsToSave.length} stok transactions (Updated: ${transactionsToSave.filter(t => t.isUpdate).length}, Created: ${transactionsToSave.filter(t => !t.isUpdate).length})`);
+                
             } catch (error) {
                 console.error('Error recording stok transactions from surat jalan:', error);
             }
@@ -10556,6 +10528,14 @@ No. Kendaraan: ${noKendaraan}
                         }
                         
                         console.log(`✅ Deleted ${stokEntriesToDelete.length} related stok entries`);
+                        
+                        // Delete remote stock entries if SyncManager is available
+                        if (window.syncManager) {
+                            const stockIds = stokEntriesToDelete.map(e => e.id).filter(id => id != null);
+                            if (stockIds.length > 0) {
+                                window.syncManager.deleteRemoteStockEntries(stockIds);
+                            }
+                        }
                     }
                     
                     alert('Semua log input dan data terkait di riwayat stok telah dihapus!');
@@ -10681,6 +10661,17 @@ No. Kendaraan: ${noKendaraan}
                             }
                             if (typeof updateUkuranKacaList === 'function') {
                                 updateUkuranKacaList();
+                            }
+                            
+                            // Delete related stok from backend
+                            if (window.syncManager) {
+                                const stockIds = transactionsToDelete.map(e => e.id).filter(id => id != null);
+                                if (stockIds.length > 0) {
+                                    // Use set timeout to not block UI
+                                    setTimeout(() => {
+                                        window.syncManager.deleteRemoteStockEntries(stockIds);
+                                    }, 100);
+                                }
                             }
                         }
                     } catch (error) {
@@ -15482,6 +15473,10 @@ No. Kendaraan: ${noKendaraan}
           return this._postWithRetry('clear_data', { target });
       }
 
+      async deleteStockEntries(ids) {
+          return this._postWithRetry('delete_stock_entries', { ids });
+      }
+
       async syncBatch(data) {
           return this._postWithRetry('sync_batch', data);
       }
@@ -15572,6 +15567,20 @@ No. Kendaraan: ${noKendaraan}
                  console.error('Remote clear failed:', e);
                  this.updateStatus('Gagal hapus data server', 'error');
              }
+        }
+
+        async deleteRemoteStockEntries(ids) {
+            if (!ids || ids.length === 0) return;
+            if (!this.backend.url || this.backend.url.includes('GANTI_DENGAN')) return;
+            try {
+                this.updateStatus('Menghapus stok di server...', 'syncing');
+                await this.backend.deleteStockEntries(ids);
+                this.updateStatus('Stok server dihapus', 'success');
+                setTimeout(() => this.updateStatus('Online', 'online'), 2000);
+            } catch (e) {
+                console.error('Remote stock delete failed:', e);
+                this.updateStatus('Gagal hapus stok server', 'error');
+            }
         }
 
         async syncAll() {
