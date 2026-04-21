@@ -3678,7 +3678,52 @@
       margin-top: 0;
     }
 
-    /* Status Bar */
+    /* Manual Move Buttons */
+        .move-buttons-group {
+            display: flex;
+            gap: 4px;
+            margin-right: 8px;
+            padding-right: 8px;
+            border-right: 1px solid #eee;
+        }
+        
+        .move-btn {
+            background-color: #f8f9fa !important;
+            color: #6c757d !important;
+            width: 28px !important;
+            height: 28px !important;
+            padding: 0 !important;
+            font-size: 10px !important;
+        }
+        
+        .move-btn:hover {
+             background-color: #e9ecef !important;
+             color: #333 !important;
+             transform: scale(1.1);
+         }
+
+         .reordering-row {
+             background-color: #e3f2fd !important;
+             outline: 2px solid #2196f3;
+             outline-offset: -2px;
+             box-shadow: 0 4px 12px rgba(33, 150, 243, 0.3);
+             z-index: 10;
+             position: relative;
+         }
+
+         .reorder-active-btn {
+             background-color: #2196f3 !important;
+             color: white !important;
+             animation: pulse-blue 1.5s infinite;
+         }
+
+         @keyframes pulse-blue {
+             0% { box-shadow: 0 0 0 0 rgba(33, 150, 243, 0.4); }
+             70% { box-shadow: 0 0 0 10px rgba(33, 150, 243, 0); }
+             100% { box-shadow: 0 0 0 0 rgba(33, 150, 243, 0); }
+         }
+
+         /* Status Bar */
     .status-bar {
       padding: 8px;
       margin: 10px 0;
@@ -4863,7 +4908,7 @@
                     }
                 }
                 
-                // IDENTIFY EXISTING TRANSACTIONS (New Logic: Update instead of Delete-then-Insert)
+                // IDENTIFY EXISTING TRANSACTIONS (Improved Logic: Match by ID, fallback to Nota only if needed)
                 const currentLogEntryId = lastLogEntryId;
                 const originalNomorSJ = originalNomorSJForDeletion || (editingLogEntry && editingLogEntry.entry ? editingLogEntry.entry.data?.nomorSJ || '' : '');
                 
@@ -4872,15 +4917,20 @@
                 if (currentLogEntryId) {
                     // Find existing transactions for this log ID
                     existingTransactions = window.stokData.filter(entry => entry.logEntryId === currentLogEntryId);
-                    // Sort by ID (assuming creation order) to match with form rows order
-                    existingTransactions.sort((a, b) => {
-                        const idA = typeof a.id === 'string' ? parseFloat(a.id) : a.id;
-                        const idB = typeof b.id === 'string' ? parseFloat(b.id) : b.id;
-                        return idA - idB;
-                    });
-                    console.log(`Found ${existingTransactions.length} existing transactions for log ${currentLogEntryId}`);
+                    
+                    // Fallback: If no transactions found by logEntryId, try by originalNomorSJ (legacy data)
+                    if (existingTransactions.length === 0 && originalNomorSJ) {
+                        existingTransactions = window.stokData.filter(entry => {
+                            const entryNota = entry.nota ? entry.nota.trim() : '';
+                            const targetNota = originalNomorSJ.trim();
+                            return entryNota === targetNota && !entry.logEntryId; 
+                        });
+                        console.log(`Legacy fallback: Found ${existingTransactions.length} transactions by nota ${originalNomorSJ}`);
+                    } else {
+                        console.log(`Found ${existingTransactions.length} existing transactions for log ${currentLogEntryId}`);
+                    }
                 } else if (originalNomorSJ) {
-                    // Fallback: if logEntryId not available, use nota (for backward compatibility)
+                    // This block is for cases where lastLogEntryId might be missing
                     existingTransactions = window.stokData.filter(entry => {
                         const entryNota = entry.nota ? entry.nota.trim() : '';
                         const targetNota = originalNomorSJ.trim();
@@ -4888,6 +4938,13 @@
                     });
                     console.log(`Found ${existingTransactions.length} existing transactions for nota ${originalNomorSJ}`);
                 }
+                
+                // Sort by ID to ensure consistent index-based fallback if needed
+                existingTransactions.sort((a, b) => {
+                    const idA = typeof a.id === 'string' ? parseFloat(a.id) : a.id;
+                    const idB = typeof b.id === 'string' ? parseFloat(b.id) : b.id;
+                    return idA - idB;
+                });
                 
                 // Clear originalNomorSJForDeletion after use
                 originalNomorSJForDeletion = null;
@@ -4974,19 +5031,36 @@
                     
                     const notaValue = nomorSJ || `SJ-${formattedDate.replace(/\//g, '')}-${index + 1}`;
                     
-                    // Determine ID: Use existing ID if available, otherwise generate new
-                    let transactionId;
+                    // Determine ID: Match by data-transaction-id if available
+                    let transactionId = null;
                     let existingEntry = null;
                     let isUpdate = false;
                     
-                    if (index < existingTransactions.length) {
+                    const rowTransactionId = row.getAttribute('data-transaction-id');
+                    if (rowTransactionId) {
+                        // Priority 1: Match by ID stored in row
+                        const normalizedRowId = parseFloat(rowTransactionId);
+                        existingEntry = existingTransactions.find(t => (typeof t.id === 'string' ? parseFloat(t.id) : t.id) === normalizedRowId);
+                        if (existingEntry) {
+                            transactionId = existingEntry.id;
+                            isUpdate = true;
+                        }
+                    } 
+                    
+                    if (!isUpdate && index < existingTransactions.length) {
+                        // Priority 2: Fallback to index-based match for legacy rows without stored ID
                         existingEntry = existingTransactions[index];
                         transactionId = existingEntry.id;
                         isUpdate = true;
-                    } else {
-                        transactionId = Date.now() + index; // New ID
-                        isUpdate = false;
                     }
+                    
+                    if (!isUpdate) {
+                        // Priority 3: New transaction
+                        transactionId = Date.now() + index;
+                    }
+                    
+                    // Update row with transaction ID so it can be used for subsequent saves/edits
+                    row.setAttribute('data-transaction-id', transactionId);
                     
                     // Create transaction entry
                     const transaction = {
@@ -5617,7 +5691,13 @@ No. Kendaraan: ${noKendaraan}
                 
                 // Export riwayat stok from IndexedDB
                 try {
-                    if (typeof loadData === 'function') {
+                    if (typeof window.loadData === 'function') {
+                        const stokDataArray = await window.loadData();
+                        if (Array.isArray(stokDataArray) && stokDataArray.length > 0) {
+                            allData['stokData'] = stokDataArray;
+                            console.log('✅ Riwayat stok included in backup:', stokDataArray.length, 'entries');
+                        }
+                    } else if (typeof loadData === 'function') {
                         const stokDataArray = await loadData();
                         if (Array.isArray(stokDataArray) && stokDataArray.length > 0) {
                             allData['stokData'] = stokDataArray;
@@ -5642,10 +5722,12 @@ No. Kendaraan: ${noKendaraan}
                             const storeName = typeof STORE_NAME !== 'undefined' ? STORE_NAME : 'stokData';
                             
                             // Clear existing stokData first
-                            if (typeof initDB === 'function') {
-                                await initDB();
-                                if (typeof db !== 'undefined' && db) {
-                                    const transaction = db.transaction([storeName], 'readwrite');
+                            const currentInitDB = window.initDB || (typeof initDB === 'function' ? initDB : null);
+                            if (currentInitDB) {
+                                await currentInitDB();
+                                const currentDB = window.db || (typeof db !== 'undefined' ? db : null);
+                                if (currentDB) {
+                                    const transaction = currentDB.transaction([storeName], 'readwrite');
                                     const store = transaction.objectStore(storeName);
                                     await new Promise((resolve, reject) => {
                                         const clearRequest = store.clear();
@@ -5653,10 +5735,10 @@ No. Kendaraan: ${noKendaraan}
                                         clearRequest.onerror = () => reject(clearRequest.error);
                                     });
                                     
-                                    // Add all stokData entries
+                                    // Add all stokData entries using put to avoid ID conflicts
                                     for (const entry of data.stokData) {
                                         await new Promise((resolve, reject) => {
-                                            const request = store.add(entry);
+                                            const request = store.put(entry);
                                             request.onsuccess = () => resolve();
                                             request.onerror = () => reject(request.error);
                                         });
@@ -5665,42 +5747,41 @@ No. Kendaraan: ${noKendaraan}
                                     // Update global stokData array
                                     if (typeof window !== 'undefined') {
                                         window.stokData = data.stokData;
-                                        // Also update stokData variable if it exists in current scope
-                                        if (typeof stokData !== 'undefined') {
-                                            stokData = data.stokData;
-                                        }
                                     }
                                     
                                     // Update tables if functions are available
-                                    if (typeof updateStokTable === 'function') {
+                                    if (typeof window.updateStokTable === 'function') {
+                                        window.updateStokTable();
+                                    } else if (typeof updateStokTable === 'function') {
                                         updateStokTable();
                                     }
-                                    if (typeof updateTotalSisa === 'function') {
+                                    
+                                    if (typeof window.updateTotalSisa === 'function') {
+                                        window.updateTotalSisa();
+                                    } else if (typeof updateTotalSisa === 'function') {
                                         updateTotalSisa();
                                     }
                                     
                                     console.log('✅ Riwayat stok imported successfully:', data.stokData.length, 'entries');
                                 }
-                            } else if (typeof addEntry === 'function') {
+                            } else if (typeof window.addEntry === 'function' || typeof addEntry === 'function') {
                                 // Fallback: use addEntry function if available
+                                const currentAddEntry = window.addEntry || addEntry;
                                 for (const entry of data.stokData) {
-                                    await addEntry(entry);
+                                    await currentAddEntry(entry);
                                 }
                                 
                                 // Update global stokData array
                                 if (typeof window !== 'undefined') {
                                     window.stokData = data.stokData;
-                                    if (typeof stokData !== 'undefined') {
-                                        stokData = data.stokData;
-                                    }
                                 }
                                 
                                 // Update tables if functions are available
-                                if (typeof updateStokTable === 'function') {
-                                    updateStokTable();
+                                if (typeof window.updateStokTable === 'function') {
+                                    window.updateStokTable();
                                 }
-                                if (typeof updateTotalSisa === 'function') {
-                                    updateTotalSisa();
+                                if (typeof window.updateTotalSisa === 'function') {
+                                    window.updateTotalSisa();
                                 }
                                 
                                 console.log('✅ Riwayat stok imported via addEntry:', data.stokData.length, 'entries');
@@ -9499,6 +9580,8 @@ No. Kendaraan: ${noKendaraan}
         let editingLogEntry = null;
         // Track last log entry ID for linking stok transactions
         let lastLogEntryId = null;
+        // Track original nomorSJ for stock sync during edits
+        let originalNomorSJForDeletion = null;
         try {
             const saved = storageManager.load('lastNomorSJ');
             lastNomorSJ = (saved || '').trim();
@@ -9755,6 +9838,7 @@ No. Kendaraan: ${noKendaraan}
                 // Get harga jual & beli
                 const hargaBeli = row.querySelector('.harga-beli')?.value?.trim() || '';
                 const hargaJual = row.querySelector('.harga-jual')?.value?.trim() || '';
+                const transactionId = row.getAttribute('data-transaction-id') || '';
                 
                 // Only add rows that have actual data
                 const hasData = jenisKaca.trim() || pwd.trim() || noDo.trim() || ukuran.trim() || box.trim() || lbr.trim() || totalLbr.trim() || hargaJual.trim();
@@ -9769,7 +9853,8 @@ No. Kendaraan: ${noKendaraan}
                         hargaJual: hargaJual.trim(),
                         box: box.trim(),
                         lbr: lbr.trim(),
-                        totalLbr: totalLbr.trim()
+                        totalLbr: totalLbr.trim(),
+                        stokTransactionId: transactionId // Store transaction ID for sync
                     });
                 }
             });
@@ -10213,6 +10298,11 @@ No. Kendaraan: ${noKendaraan}
             const tbody = document.getElementById('kacaTableBody');
             if (!tbody) return;
             
+            // Ensure suggestions are up to date before loading
+            if (typeof updateKacaSuggestionsFromLogs === 'function') {
+                updateKacaSuggestionsFromLogs();
+            }
+
             // Handle both old format (array) and new format (object with rows)
             const rows = Array.isArray(kacaData) ? kacaData : (kacaData.rows || []);
             const footer = kacaData.footer || {};
@@ -10264,19 +10354,38 @@ No. Kendaraan: ${noKendaraan}
                 const hargaBeliEl = newRow.querySelector('.harga-beli');
                 const hargaEl = newRow.querySelector('.harga-jual');
                 const boxEl = newRow.querySelector('.box');
-                if (hargaBeliEl) {
-                    hargaBeliEl.value = rowData.hargaBeli || '';
-                    if (rowData.hargaBeli) {
-                        hargaBeliEl.setAttribute('data-manual-harga-beli', 'true');
-                        hargaBeliEl.setAttribute('data-original-value', rowData.hargaBeli);
-                    }
+                
+                // Set transaction ID for sync if available
+                if (rowData.stokTransactionId) {
+                    newRow.setAttribute('data-transaction-id', rowData.stokTransactionId);
                 }
-                const lbrEl = newRow.querySelector('.lbr');
-                const totalEl = newRow.querySelector('.total-lbr-input');
+                
                 if (jenisEl) jenisEl.value = rowData.jenisKaca || '';
                 if (pwdEl) pwdEl.value = rowData.pwd || '';
                 if (noDoEl) noDoEl.value = rowData.noDo || '';
-                if (ukuranEl) ukuranEl.value = rowData.ukuran || '';
+                
+                if (ukuranEl) {
+                    ukuranEl.value = rowData.ukuran || '';
+                    // CRITICAL: Set explicit lock for size and price to prevent auto-detection from picking wrong price
+                    if (rowData.ukuran && rowData.hargaBeli) {
+                        const hBeli = String(rowData.hargaBeli).replace(/[^\d]/g, '');
+                        ukuranEl.setAttribute('data-explicit-size', rowData.ukuran);
+                        ukuranEl.setAttribute('data-explicit-price', hBeli);
+                        ukuranEl.setAttribute('data-selected-harga', hBeli);
+                        console.log(`[Load Log] Locked size "${rowData.ukuran}" with price "${hBeli}"`);
+                    }
+                }
+                
+                // Set harga beli and mark it as manually set to prevent auto-update from overwriting it
+                if (hargaBeliEl) {
+                    const hBeli = rowData.hargaBeli || '';
+                    hargaBeliEl.value = hBeli;
+                    if (hBeli) {
+                        hargaBeliEl.setAttribute('data-manual-harga-beli', 'true');
+                        hargaBeliEl.setAttribute('data-original-value', hBeli);
+                    }
+                }
+
                 // Set harga jual and mark it as manually set to prevent auto-update from overwriting it
                 if (hargaEl) {
                     const loadedHargaJual = rowData.hargaJual || rowData.harga || '';
@@ -10296,6 +10405,8 @@ No. Kendaraan: ${noKendaraan}
                         this.removeAttribute('data-manual-harga');
                     });
                 }
+                const lbrEl = newRow.querySelector('.lbr');
+                const totalEl = newRow.querySelector('.total-lbr-input');
                 if (boxEl) boxEl.value = rowData.box || '';
                 if (lbrEl) lbrEl.value = rowData.lbr || '';
                 if (totalEl) totalEl.value = rowData.totalLbr || '';
@@ -10305,6 +10416,13 @@ No. Kendaraan: ${noKendaraan}
                 if (typeof calculateTotalLbr === 'function' && (boxEl || lbrEl)) {
                     const refInput = lbrEl || boxEl;
                     try { calculateTotalLbr(refInput); } catch (_) {}
+                }
+
+                // Force sync internal price logic for this row
+                if (ukuranEl && rowData.ukuran) {
+                    setTimeout(() => {
+                        updateHargaUkuranLogic(ukuranEl, true);
+                    }, 50);
                 }
                 
                 // Attach event listeners for jenis kaca and ukuran (same as in addKacaRow)
@@ -10565,6 +10683,21 @@ No. Kendaraan: ${noKendaraan}
             
             // Show editing indicator
             showEditingIndicator();
+
+            // Automatically scroll to the form and focus on the first field
+            const formElement = document.getElementById('tokoForm');
+            if (formElement) {
+                formElement.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                // Small delay to allow scroll to complete before focusing
+                setTimeout(() => {
+                    const firstInput = document.getElementById('namaToko');
+                    if (firstInput) {
+                        firstInput.focus();
+                        // Select text for easier editing
+                        firstInput.select();
+                    }
+                }, 500);
+            }
         }
 
         // Show editing mode indicator
@@ -11889,15 +12022,13 @@ No. Kendaraan: ${noKendaraan}
             
             if (!Array.isArray(dataArray)) return groupedData;
 
+            // FIRST PASS: Group by tebal, ukuran, and harga
             dataArray.forEach((entry) => {
-                // Apply filter if provided
                 if (filterFn && !filterFn(entry)) return;
-                
-                // Skip invalid entries
                 if (!entry.tebal || !entry.ukuran) return;
 
                 const hargaKey = entry.harga !== undefined && entry.harga > 0 ? entry.harga : 'noharga';
-                const key = `${entry.tebal}-${entry.ukuran}-${hargaKey}`;
+                const key = `${entry.tebal}|${entry.ukuran}|${hargaKey}`;
 
                 if (!groupedData[key]) {
                     groupedData[key] = { 
@@ -11906,26 +12037,73 @@ No. Kendaraan: ${noKendaraan}
                         hargaMasuk: hargaKey !== 'noharga' ? entry.harga : undefined,
                         totalMasuk: 0, 
                         totalKeluar: 0, 
-                        totalSisa: 0 
+                        totalSisa: 0,
+                        entries: []
                     };
-                }
-
-                // Logic penentuan hargaMasuk
-                if (entry.harga !== undefined && entry.harga > 0) {
-                    if (groupedData[key].hargaMasuk === undefined) {
-                        groupedData[key].hargaMasuk = entry.harga;
-                    } else if (entry.masuk > 0) {
-                        // Prioritaskan harga dari transaksi masuk
-                        groupedData[key].hargaMasuk = entry.harga;
-                    }
                 }
 
                 groupedData[key].totalMasuk += (entry.masuk || 0);
                 groupedData[key].totalKeluar += (entry.keluar || 0);
-                groupedData[key].totalSisa = groupedData[key].totalMasuk - groupedData[key].totalKeluar;
+                groupedData[key].entries.push(entry);
+            });
+
+            // SECOND PASS: Distribute 'noharga' sales (keluar) across priced pools (FIFO)
+            const keys = Object.keys(groupedData);
+            const noHargaKeys = keys.filter(k => k.endsWith('|noharga'));
+
+            noHargaKeys.forEach(noHargaKey => {
+                const noHargaGroup = groupedData[noHargaKey];
+                if (noHargaGroup.totalKeluar > 0) {
+                    let remainingKeluar = noHargaGroup.totalKeluar;
+                    
+                    // Find priced groups for the same item type
+                    const pricedGroups = keys
+                        .filter(k => k !== noHargaKey && k.startsWith(`${noHargaGroup.tebal}|${noHargaGroup.ukuran}|`))
+                        .map(k => groupedData[k])
+                        .sort((a, b) => {
+                            // FIFO: Attribute to oldest purchase first
+                            const minIdA = Math.min(...a.entries.map(e => (typeof e.id === 'string' ? parseFloat(e.id) : e.id)));
+                            const minIdB = Math.min(...b.entries.map(e => (typeof e.id === 'string' ? parseFloat(e.id) : e.id)));
+                            return minIdA - minIdB;
+                        });
+
+                    pricedGroups.forEach(targetGroup => {
+                        if (remainingKeluar <= 0) return;
+                        
+                        const available = targetGroup.totalMasuk - targetGroup.totalKeluar;
+                        if (available > 0) {
+                            const taken = Math.min(remainingKeluar, available);
+                            targetGroup.totalKeluar += taken;
+                            remainingKeluar -= taken;
+                        }
+                    });
+
+                    // If all attributed, reset the noHargaGroup
+                    if (remainingKeluar <= 0) {
+                        noHargaGroup.totalKeluar = 0;
+                    } else {
+                        noHargaGroup.totalKeluar = remainingKeluar;
+                    }
+                }
+            });
+
+            // Recalculate totalSisa and filter out empty groups
+            const finalGroupedData = {};
+            Object.keys(groupedData).forEach(key => {
+                const group = groupedData[key];
+                group.totalSisa = group.totalMasuk - group.totalKeluar;
+                
+                // Keep the group if it has stock or if it's a priced pool that had transactions
+                if (group.totalMasuk > 0 || group.totalKeluar > 0) {
+                    // Only keep no-price group if it still has negative sisa (unattributed sales)
+                    if (key.endsWith('|noharga') && group.totalSisa >= 0) {
+                        return;
+                    }
+                    finalGroupedData[key] = group;
+                }
             });
             
-            return groupedData;
+            return finalGroupedData;
         }
 
         // Helper to sort grouped data by Tebal then Ukuran
@@ -13189,13 +13367,15 @@ No. Kendaraan: ${noKendaraan}
   </div>
 
   <div class="footer">
-    <p>&copy; Rian v28.12.25 | PT.Hasta Harmonis | <a href="https://i.redd.it/2plmf8vh7ryf1.jpeg">Privacy Policy</a></p>
+    <p>&copy; Rian v21.04.26 | Trae | Cursor | <a href="https://i.redd.it/2plmf8vh7ryf1.jpeg">Privacy Policy</a></p>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/flatpickr"></script>
   <script>
     let stokData = [];
+    let activeItemFilter = null;
+    let currentlyReorderingId = null;
     let currentlyEditingId = null;
     let db = null;
     const DB_NAME = 'StokKacaDB';
@@ -13203,6 +13383,15 @@ No. Kendaraan: ${noKendaraan}
     const STORE_NAME = 'stokData';
     // Flag to prevent auto-overwrite when user mengisi harga beli/manual
     let hargaManualOverride = false;
+
+    // Expose functions to window for backup/restore and cross-script access
+    window.initDB = initDB;
+    window.loadData = loadData;
+    window.addEntry = addEntry;
+    window.deleteEntryFromDB = deleteEntryFromDB;
+    window.updateStokTable = updateStokTable;
+    window.updateTotalSisa = updateTotalSisa;
+    window.stokData = stokData;
 
     // Initialize IndexedDB
     function initDB() {
@@ -14209,6 +14398,15 @@ No. Kendaraan: ${noKendaraan}
       const searchTerm = searchInput ? searchInput.value.trim() : '';
       const searchClearBtn = document.getElementById('searchClearBtn');
       const tableBody = document.getElementById("stokTable");
+
+      // Reset active item filter if user manually searches
+      const filterText = activeItemFilter ? `${activeItemFilter.tebal} ${activeItemFilter.ukuran}${activeItemFilter.harga !== undefined ? ` ${activeItemFilter.harga.toLocaleString('id-ID')}` : ''}` : '';
+      if (activeItemFilter && searchTerm !== filterText) {
+        activeItemFilter = null;
+        currentlyReorderingId = null; // Also reset reorder mode
+        updateStokTable(); // Re-render to original state (newest first, all items)
+        // No return here, proceed to filter the newly rendered rows with the new searchTerm
+      }
       if (!tableBody) {
         console.log('❌ stokTable not found');
         return;
@@ -14308,19 +14506,19 @@ No. Kendaraan: ${noKendaraan}
         return;
       }
       
-      const searchTermLower = searchTerm.toLowerCase();
+      // Split search term into keywords for multi-field search (e.g. "FL 5MM 60X48")
+      const keywords = searchTerm.toLowerCase().split(/\s+/).filter(k => k.length > 0);
+      
       rows.forEach(row => {
-        const cells = row.querySelectorAll('td');
-        let found = false;
+        const cells = Array.from(row.querySelectorAll('td'));
+        // Get text from all searchable columns (skip No and Aksi)
+        const searchableText = cells
+          .slice(1, -1)
+          .map(cell => cell.textContent.toLowerCase())
+          .join(' ');
         
-        // Search in all visible columns (skip No and Aksi columns)
-        for (let i = 1; i < cells.length - 1; i++) {
-          const cellText = cells[i].textContent.toLowerCase();
-          if (cellText.includes(searchTermLower)) {
-            found = true;
-            break;
-          }
-        }
+        // Check if ALL keywords are present in the searchable text
+        const found = keywords.every(keyword => searchableText.includes(keyword));
         
         row.style.display = found ? '' : 'none';
       });
@@ -14330,7 +14528,9 @@ No. Kendaraan: ${noKendaraan}
     function clearSearch() {
       document.getElementById('searchInput').value = '';
       document.getElementById('searchClearBtn').style.display = 'none';
-      performSearch();
+      activeItemFilter = null; // Reset item filter when clearing search
+      currentlyReorderingId = null; // Reset reorder mode too
+      updateStokTable();
       document.getElementById('searchInput').focus();
     }
 
@@ -14566,20 +14766,28 @@ No. Kendaraan: ${noKendaraan}
       };
     }
     
-    function calculateCurrentStock(entry) {
-      // Get all entries of the same type (tebal + ukuran + harga beli)
-      const sameTypeEntries = stokData.filter(e => 
-        e.tebal === entry.tebal && 
-        e.ukuran === entry.ukuran &&
-        ((e.harga ?? null) === (entry.harga ?? null))
-      );
+    function calculateCurrentStock(entry, data) {
+      const sourceData = data || stokData;
+      // Get all entries of the same type (tebal + ukuran + harga)
+      // We always group by price to show separate running balance for each price pool
+      const targetPrice = entry.harga ?? null;
+      
+      const sameTypeEntries = sourceData.filter(e => {
+        return e.tebal === entry.tebal && 
+               e.ukuran === entry.ukuran &&
+               (e.harga ?? null) === targetPrice;
+      });
       
       // Sort by date and ID (oldest first) - using cached date parsing
       sameTypeEntries.sort((a, b) => {
-        const dateA = window._parseDateCached(a.tanggal);
-        const dateB = window._parseDateCached(b.tanggal);
+        const parseDate = window._parseDateCached || ((d) => new Date(d.split('/').reverse().join('/')));
+        const dateA = parseDate(a.tanggal);
+        const dateB = parseDate(b.tanggal);
         if (dateA - dateB !== 0) return dateA - dateB;
-        return a.id - b.id; // For entries with same date, sort by ID
+        // Normalize IDs to numbers for reliable comparison
+        const idA = typeof a.id === 'string' ? parseFloat(a.id) : a.id;
+        const idB = typeof b.id === 'string' ? parseFloat(b.id) : b.id;
+        return idA - idB; 
       });
       
       // Find all entries up to and including this one
@@ -14587,8 +14795,8 @@ No. Kendaraan: ${noKendaraan}
       const entriesUpToThis = sameTypeEntries.slice(0, entryIndex + 1);
       
       // Calculate total masuk and keluar
-      const totalMasuk = entriesUpToThis.reduce((sum, e) => sum + e.masuk, 0);
-      const totalKeluar = entriesUpToThis.reduce((sum, e) => sum + e.keluar, 0);
+      const totalMasuk = entriesUpToThis.reduce((sum, e) => sum + (e.masuk || 0), 0);
+      const totalKeluar = entriesUpToThis.reduce((sum, e) => sum + (e.keluar || 0), 0);
       
       return totalMasuk - totalKeluar;
     }
@@ -14611,13 +14819,173 @@ No. Kendaraan: ${noKendaraan}
       return `${day}/${month}/${year}`;
     }
 
+    // Function to manually move stok rows to fix chronological flow
+    async function moveStokRow(id, direction) {
+      const normalizedId = typeof id === 'string' ? parseFloat(id) : id;
+      
+      // Get current sorted data source based on activeItemFilter
+      let dataSource = (typeof window !== 'undefined' && typeof window.stokData !== 'undefined' && Array.isArray(window.stokData)) 
+        ? [...window.stokData] 
+        : [...stokData];
+
+      if (activeItemFilter) {
+        dataSource = dataSource.filter(entry => 
+          entry.tebal === activeItemFilter.tebal && 
+          entry.ukuran === activeItemFilter.ukuran &&
+          ((entry.harga ?? null) === (activeItemFilter.harga ?? null))
+        );
+      }
+
+      // Sort chronological (same as flow analysis)
+      dataSource.sort((a, b) => {
+        const parseDate = window._parseDateCached || ((d) => new Date(d.split('/').reverse().join('/')));
+        const dateA = parseDate(a.tanggal);
+        const dateB = parseDate(b.tanggal);
+        const idA = typeof a.id === 'string' ? parseFloat(a.id) : a.id;
+        const idB = typeof b.id === 'string' ? parseFloat(b.id) : b.id;
+        if (dateA - dateB !== 0) return dateA - dateB;
+        return idA - idB;
+      });
+
+      const currentIndex = dataSource.findIndex(item => (typeof item.id === 'string' ? parseFloat(item.id) : item.id) === normalizedId);
+      if (currentIndex === -1) return;
+
+      let targetIndex = -1;
+      if (direction === 'up' && currentIndex > 0) {
+        targetIndex = currentIndex - 1;
+      } else if (direction === 'down' && currentIndex < dataSource.length - 1) {
+        targetIndex = currentIndex + 1;
+      }
+
+      if (targetIndex !== -1) {
+        const currentItem = dataSource[currentIndex];
+        const targetItem = dataSource[targetIndex];
+
+        // To swap positions while maintaining date sort:
+        // 1. If dates are different, swap their dates
+        // 2. If dates are same, swap their IDs (or slightly adjust them)
+        
+        const parseDate = window._parseDateCached || ((d) => new Date(d.split('/').reverse().join('/')));
+        const dateA = parseDate(currentItem.tanggal);
+        const dateB = parseDate(targetItem.tanggal);
+
+        try {
+          // Store old IDs for deletion
+          const oldIdCurrent = currentItem.id;
+          const oldIdTarget = targetItem.id;
+
+          if (dateA.getTime() !== dateB.getTime()) {
+            // Swap dates to move across days
+            const tempDate = currentItem.tanggal;
+            currentItem.tanggal = targetItem.tanggal;
+            targetItem.tanggal = tempDate;
+          } else {
+            // Same day: swap IDs to change relative order within the day
+            const tempId = currentItem.id;
+            currentItem.id = targetItem.id;
+            targetItem.id = tempId;
+            
+            // Ensure IDs remain unique if they were identical for some reason
+            if (currentItem.id === targetItem.id) {
+              currentItem.id = Date.now() + Math.random();
+            }
+
+            // UPDATE HIGHLIGHT ID: If we are in reorder mode, update the ID to follow the data
+            if (currentlyReorderingId === oldIdCurrent) {
+              currentlyReorderingId = currentItem.id;
+            }
+          }
+
+          // Update both in IndexedDB (Delete then Add because ID is PK)
+          const deleteFunc = window.deleteEntryFromDB || deleteEntryFromDB;
+          const addFunc = window.addEntry || addEntry;
+
+          if (deleteFunc && addFunc) {
+            await deleteFunc(oldIdCurrent);
+            await deleteFunc(oldIdTarget);
+            await addFunc(currentItem);
+            await addFunc(targetItem);
+          }
+
+          // Sync global arrays
+          if (typeof window !== 'undefined' && typeof window.stokData !== 'undefined') {
+            const idx1 = window.stokData.findIndex(e => e.id === oldIdCurrent);
+            if (idx1 !== -1) window.stokData[idx1] = currentItem;
+            const idx2 = window.stokData.findIndex(e => e.id === oldIdTarget);
+            if (idx2 !== -1) window.stokData[idx2] = targetItem;
+            stokData = [...window.stokData];
+          }
+
+          updateStokTable();
+          updateTotalSisa();
+
+        } catch (err) {
+          console.error("Failed to move row:", err);
+          alert("Gagal mengubah urutan: " + err.message);
+        }
+      }
+    }
+
+    // New logic for Keyboard Reordering
+    function toggleReorderMode(id) {
+      if (currentlyReorderingId === id) {
+        currentlyReorderingId = null;
+        updateStokTable();
+        showStatus("Urutan manual selesai", "saving");
+        setTimeout(() => document.getElementById('statusBar').style.display = 'none', 1500);
+      } else {
+        currentlyReorderingId = id;
+        updateStokTable();
+        showStatus("Gunakan panah UP/DOWN untuk memindah, ENTER untuk simpan", "saving");
+      }
+    }
+
+    // Handle global keyboard events for reordering
+    document.addEventListener('keydown', function(e) {
+      if (!currentlyReorderingId) return;
+      
+      // Don't trigger reordering if an input or textarea is currently focused
+      const activeEl = document.activeElement;
+      const isInputFocused = activeEl && (
+          activeEl.tagName === 'INPUT' || 
+          activeEl.tagName === 'TEXTAREA' || 
+          activeEl.isContentEditable
+      );
+      
+      // Special case: Allow Enter even if input is focused to finish reordering
+      if (e.key === 'Enter' && currentlyReorderingId) {
+        e.preventDefault();
+        toggleReorderMode(currentlyReorderingId);
+        return;
+      }
+
+      if (isInputFocused) return;
+
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        moveStokRow(currentlyReorderingId, 'up');
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        moveStokRow(currentlyReorderingId, 'down');
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        toggleReorderMode(currentlyReorderingId);
+      } else if (e.key === 'Escape') {
+        currentlyReorderingId = null;
+        updateStokTable();
+        // Hide status bar notification when cancelled
+        const statusBar = document.getElementById('statusBar');
+        if (statusBar) statusBar.style.display = 'none';
+      }
+    });
+
     // Function to update Riwayat Stok table
     function updateStokTable() {
       const tableBody = document.getElementById("stokTable").getElementsByTagName('tbody')[0];
       tableBody.innerHTML = ""; // Clear the table body
 
       // Use window.stokData if available (for sync with surat jalan), otherwise use local stokData
-      const dataSource = (typeof window !== 'undefined' && typeof window.stokData !== 'undefined' && Array.isArray(window.stokData)) 
+      let dataSource = (typeof window !== 'undefined' && typeof window.stokData !== 'undefined' && Array.isArray(window.stokData)) 
         ? window.stokData 
         : stokData;
       
@@ -14626,51 +14994,91 @@ No. Kendaraan: ${noKendaraan}
         stokData = [...window.stokData];
       }
 
-      // Sort by ID (newest first) - ID is created with Date.now() so higher ID = newer entry
-      // This ensures the most recently added entries appear at the top
+      // Apply active item filter if set
+      if (activeItemFilter) {
+        dataSource = dataSource.filter(entry => {
+          const matchBase = entry.tebal === activeItemFilter.tebal && 
+                           entry.ukuran === activeItemFilter.ukuran;
+          
+          if (!matchBase) return false;
+          
+          // If filter includes price, match by price too
+          if (activeItemFilter.hasOwnProperty('harga')) {
+            return (entry.harga ?? null) === (activeItemFilter.harga ?? null);
+          }
+          
+          return true;
+        });
+      }
+
+      // Sort logic
       const sortedData = [...dataSource].sort((a, b) => {
-        // Primary sort: by ID (newest first)
-        const idA = a.id || 0;
-        const idB = b.id || 0;
-        if (idB !== idA) {
-          return idB - idA;
+        // If filtering by item, sort chronologically (oldest first) to show stock flow
+        // Otherwise, sort by ID/Date newest first for general history
+        const parseDate = window._parseDateCached || ((d) => new Date(d.split('/').reverse().join('/')));
+        const dateA = parseDate(a.tanggal);
+        const dateB = parseDate(b.tanggal);
+        const idA = typeof a.id === 'string' ? parseFloat(a.id) : a.id;
+        const idB = typeof b.id === 'string' ? parseFloat(b.id) : b.id;
+
+        if (activeItemFilter) {
+          // Chronological (Oldest First) for flow analysis
+          if (dateA - dateB !== 0) return dateA - dateB;
+          return idA - idB;
+        } else {
+          // Reverse Chronological (Newest First) for general history
+          if (idB !== idA) return idB - idA;
+          return dateB - dateA;
         }
-        // Secondary sort: by date (newest first) if IDs are equal - using cached date parsing
-        const parseDateCached = window._parseDateCached || ((dateStr) => new Date(dateStr.split('/').reverse().join('/')));
-        const dateA = parseDateCached(a.tanggal);
-        const dateB = parseDateCached(b.tanggal);
-        return dateB - dateA;
       });
 
       sortedData.forEach((entry, index) => {
-        const currentStock = calculateCurrentStock(entry);
+        // Calculate running stock for each entry based on its specific price pool
+        const currentStock = calculateCurrentStock(entry, dataSource);
         
         // Determine if this is a pembelian (masuk > 0) or penjualan (keluar > 0)
         // Only show edit button for pembelian entries (masuk > 0)
         // For penjualan entries (keluar > 0), editing should be done in log surat jalan
         const isPembelian = entry.masuk > 0;
+        const isReordering = currentlyReorderingId === entry.id;
         
+        // Handle potential undefined/null values for toLocaleString
+        const displayHarga = (entry.harga !== undefined && entry.harga !== null) ? entry.harga.toLocaleString('id-ID') : '-';
+        const displayHargaJual = (entry.hargaJual !== undefined && entry.hargaJual !== null) ? entry.hargaJual.toLocaleString('id-ID') : '-';
+        const displayMasuk = (entry.masuk !== undefined && entry.masuk !== null) ? entry.masuk.toLocaleString('id-ID') : '0';
+        const displayKeluar = (entry.keluar !== undefined && entry.keluar !== null) ? entry.keluar.toLocaleString('id-ID') : '0';
+        const displaySisa = (currentStock !== undefined && currentStock !== null) ? currentStock.toLocaleString('id-ID') : '0';
+
         const row = tableBody.insertRow();
+        if (isReordering) row.classList.add('reordering-row');
+        
         row.innerHTML = `
           <td>${index + 1}</td>
-          <td>${entry.nama}</td>
-          <td>${entry.tanggal}</td>
-          <td>${entry.nota}</td>
-          <td>${entry.tebal}</td>
-          <td>${entry.ukuran}</td>
-          <td>${entry.harga ? entry.harga.toLocaleString('id-ID') : '-'}</td>
-          <td>${entry.hargaJual ? entry.hargaJual.toLocaleString('id-ID') : '-'}</td>
-          <td class="masuk">${entry.masuk.toLocaleString('id-ID')}</td>
-          <td class="keluar">${entry.keluar.toLocaleString('id-ID')}</td>
-          <td class="sisa">${currentStock.toLocaleString('id-ID')}</td>
+          <td>${entry.nama || '-'}</td>
+          <td>${entry.tanggal || '-'}</td>
+          <td>${entry.nota || '-'}</td>
+          <td>${entry.tebal || '-'}</td>
+          <td>${entry.ukuran || '-'}</td>
+          <td>${displayHarga}</td>
+          <td>${displayHargaJual}</td>
+          <td class="masuk">${displayMasuk}</td>
+          <td class="keluar">${displayKeluar}</td>
+          <td class="sisa">${displaySisa}</td>
           <td style="padding-left: 25px;padding-right: 0px;padding-top: 5px;padding-bottom: 5px;">
             <div class="action-buttons-container">
+              ${activeItemFilter ? `
+              <button class="row-action-btn move-btn ${isReordering ? 'reorder-active-btn' : ''}" 
+                      onclick="toggleReorderMode(${entry.id})" 
+                      title="${isReordering ? 'Selesai mengurutkan (Enter)' : 'Aktifkan urutan manual (Gunakan panah keyboard)'}">
+                <i class="fas ${isReordering ? 'fa-check' : 'fas fa-arrows-alt-v'}"></i>
+              </button>
+              ` : ''}
               ${isPembelian ? `
               <button class="row-action-btn edit-btn" onclick="editEntry(${entry.id})" title="Edit data pembelian">
                 <i class="fas fa-edit"></i>
               </button>
               ` : `
-              <button class="row-action-btn edit-btn" style="display: none;" title="Edit penjualan dilakukan di log surat jalan">
+              <button class="row-action-btn edit-btn" onclick="editLogEntryById(${entry.logEntryId})" title="Edit penjualan di Log Surat Jalan">
                 <i class="fas fa-edit"></i>
               </button>
               `}
@@ -14692,6 +15100,16 @@ No. Kendaraan: ${noKendaraan}
       const searchInput = document.getElementById('searchInput');
       if (searchInput && searchInput.value.trim() !== '') {
         performSearch();
+      }
+
+      // Ensure the row currently being reordered is visible
+      if (currentlyReorderingId) {
+        setTimeout(() => {
+          const reorderRow = document.querySelector('.reordering-row');
+          if (reorderRow) {
+            reorderRow.scrollIntoView({ behavior: 'auto', block: 'nearest' });
+          }
+        }, 50);
       }
     }
 
@@ -14742,7 +15160,8 @@ No. Kendaraan: ${noKendaraan}
 
       // Always use pembelian mode
       setFormMode('pembelian');
-
+      currentlyReorderingId = null; // Reset reorder mode when starting to edit
+      
       // Format date for input field (yyyy-mm-dd)
       const [day, month, year] = entry.tanggal.split('/');
       const formattedDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
@@ -14754,10 +15173,10 @@ No. Kendaraan: ${noKendaraan}
       document.getElementById("tebal").value = entry.tebal;
       document.getElementById("ukuran").value = entry.ukuran;
       // Format harga dengan separator ribuan
-      document.getElementById("harga").value = entry.harga ? entry.harga.toLocaleString('id-ID') : '';
-      document.getElementById("hargaJual").value = entry.hargaJual ? entry.hargaJual.toLocaleString('id-ID') : '';
-      document.getElementById("masuk").value = entry.masuk ? entry.masuk.toLocaleString('id-ID') : '';
-      document.getElementById("keluar").value = entry.keluar;
+      document.getElementById("harga").value = (entry.harga !== undefined && entry.harga !== null) ? entry.harga.toLocaleString('id-ID') : '';
+      document.getElementById("hargaJual").value = (entry.hargaJual !== undefined && entry.hargaJual !== null) ? entry.hargaJual.toLocaleString('id-ID') : '';
+      document.getElementById("masuk").value = (entry.masuk !== undefined && entry.masuk !== null) ? entry.masuk.toLocaleString('id-ID') : '';
+      document.getElementById("keluar").value = (entry.keluar !== undefined && entry.keluar !== null) ? entry.keluar : '';
       updateHargaBeliPlaceholder();
       updateHargaJualPlaceholder();
 
@@ -14767,8 +15186,15 @@ No. Kendaraan: ${noKendaraan}
       document.getElementById("submitBtn").textContent = "Update Data";
       document.getElementById("cancelEditBtn").style.display = "block";
 
-      // Scroll to form
+      // Scroll to form and focus
       document.getElementById("stokForm").scrollIntoView({ behavior: 'smooth' });
+      setTimeout(() => {
+        const firstInput = document.getElementById("nama");
+        if (firstInput) {
+          firstInput.focus();
+          firstInput.select();
+        }
+      }, 500);
     }
 
     // Function to cancel edit
@@ -14865,6 +15291,11 @@ No. Kendaraan: ${noKendaraan}
     function updateTotalSisa() {
       const totalSisaTableBody = document.getElementById("jenisTable").getElementsByTagName('tbody')[0];
       
+      // Sync local stokData with window.stokData if available
+      if (typeof window !== 'undefined' && typeof window.stokData !== 'undefined' && Array.isArray(window.stokData)) {
+        stokData = [...window.stokData];
+      }
+
       // Group data using helper
       const groupedData = groupStokData(stokData);
 
@@ -14890,9 +15321,10 @@ No. Kendaraan: ${noKendaraan}
           <td class="${sisaClass}" ${sisaStyle}>${sisaValue}</td>
         `;
         
-        // Add click event to fill form fields
+        // Add click event to fill form fields and filter history
         row.style.cursor = 'pointer';
         row.addEventListener('click', function() {
+          // Fill form
           document.getElementById('tebal').value = data.tebal;
           document.getElementById('ukuran').value = data.ukuran;
           if (data.hargaMasuk !== undefined) {
@@ -14902,6 +15334,30 @@ No. Kendaraan: ${noKendaraan}
           updateHargaBeliPlaceholder();
           updateHargaJualPlaceholder();
           document.getElementById('keluar').focus();
+
+          // Filter history table
+          activeItemFilter = {
+            tebal: data.tebal,
+            ukuran: data.ukuran,
+            harga: data.hargaMasuk
+          };
+          
+          // Update search input to show what's being filtered
+          const searchInput = document.getElementById('searchInput');
+          if (searchInput) {
+            const hargaText = data.hargaMasuk !== undefined ? ` ${data.hargaMasuk.toLocaleString('id-ID')}` : '';
+            searchInput.value = `${data.tebal} ${data.ukuran}${hargaText}`;
+            const searchClearBtn = document.getElementById('searchClearBtn');
+            if (searchClearBtn) searchClearBtn.style.display = 'block';
+          }
+          
+          updateStokTable();
+          
+          // Scroll to history table
+          const stokTable = document.getElementById('stokTable');
+          if (stokTable) {
+            stokTable.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }
         });
         
         // Add hover effect
