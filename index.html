@@ -5386,38 +5386,33 @@
                 loadColumnSpacingFromStorage();
                 refreshPrintData();
                 // Small delay to allow DOM updates
-                setTimeout(() => {
-                    // Auto-save log before printing
-                    try { saveCurrentInputToLog(); } catch (e) { console.warn('Auto-save log failed:', e); }
-                    // Record transactions to stok
-                    // Force update all harga before recording transactions
-                    const allUkuranInputs = document.querySelectorAll('#kacaTableBody tr .ukuran');
-                    allUkuranInputs.forEach(ukuranInput => {
-                        if (ukuranInput.value.trim()) {
-                            // Trigger update by dispatching change event
-                            ukuranInput.dispatchEvent(new Event('change', { bubbles: true }));
+                setTimeout(async () => {
+                    // Auto-save log before printing (returns stock record promise)
+                    let recordPromise;
+                    try { 
+                        recordPromise = saveCurrentInputToLog(); 
+                    } catch (e) { 
+                        console.warn('Auto-save log failed:', e); 
+                    }
+                    
+                    // Wait for stock transactions to finish or at least start
+                    if (!recordPromise) {
+                        recordPromise = Promise.resolve();
+                    }
+
+                    // Trigger print
+                    printNow();
+                    // Close modal after triggering print
+                    hidePrintModal();
+                    
+                    // Sync in background after print triggered
+                    recordPromise.finally(() => {
+                         if (typeof syncManager !== 'undefined') {
+                            console.log('🖨️ Print triggered, starting background sync...');
+                            syncManager.syncAll();
                         }
                     });
-                    
-                    // Wait a bit longer to ensure all updates complete
-                    setTimeout(() => {
-                        // Start recording transactions (async)
-                        const recordPromise = recordStokTransactionsFromSuratJalan()
-                            .catch(e => console.warn('Record stok transactions failed:', e));
-                            
-                        printNow();
-                        // Close modal after triggering print
-                        hidePrintModal();
-                        
-                        // Wait for recording to finish, then sync
-                        recordPromise.finally(() => {
-                             if (typeof syncManager !== 'undefined') {
-                                console.log('🖨️ Print triggered, starting background sync...');
-                                syncManager.syncAll();
-                            }
-                        });
-                    }, 150);
-                }, 50);
+                }, 150);
             } catch (e) {
                 console.error('Quick print error:', e);
                 // Fallback: show modal so user can print manually
@@ -9719,7 +9714,10 @@ No. Kendaraan: ${noKendaraan}
 
             // Sync with Stock History
             // This ensures stock transactions are updated immediately when log is saved or edited
-            recordStokTransactionsFromSuratJalan().catch(err => console.error('Stock sync failed:', err));
+            return recordStokTransactionsFromSuratJalan().catch(err => {
+                console.error('Stock sync failed:', err);
+                return null;
+            });
         }
 
         // Helper: check if No. SJ exists in input log
