@@ -3388,7 +3388,7 @@
 
     .footer {
       text-align: center;
-      padding: 20px;
+      padding: 5px;
       background-color: #4a6fa5;
       color: white;
       margin-top: 20px;
@@ -3406,7 +3406,7 @@
     /* Scrollable Tables */
     .total-sisa-container {
       overflow-x: auto;
-      max-height: 400px;
+      max-height: 500px;
       overflow-y: auto;
       display: block;
     }
@@ -3936,7 +3936,7 @@
 
     .footer {
       text-align: center;
-      padding: 20px;
+      padding: 5px;
       background-color: #4a6fa5;
       color: white;
       margin-top: 20px;
@@ -3954,7 +3954,7 @@
     /* Scrollable Tables */
     .total-sisa-container {
       overflow-x: auto;
-      max-height: 400px;
+      max-height: 500px;
       overflow-y: auto;
       display: block;
     }
@@ -5629,7 +5629,8 @@ No. Kendaraan: ${noKendaraan}
                 const allData = {};
                 const keys = ['databaseToko', 'databaseTokoLengkap', 'printTextPositions', 
                              'inputLogHistory', 'lastNomorSJ', 'printFontSize', 'printFontFamily', 
-                             'printFontWeight', 'printColumnSpacing', 'columnSpacingConfig'];
+                             'printFontWeight', 'printColumnSpacing', 'columnSpacingConfig',
+                             'isPriceGroupingEnabled'];
                 
                 keys.forEach(key => {
                     const data = this.load(key);
@@ -5876,6 +5877,35 @@ No. Kendaraan: ${noKendaraan}
         
         // Initialize storage manager
         const storageManager = new StorageManager();
+
+        let isPriceGroupingEnabled = storageManager.load('isPriceGroupingEnabled') !== null ? storageManager.load('isPriceGroupingEnabled') : true;
+
+        function togglePriceGrouping() {
+            isPriceGroupingEnabled = !isPriceGroupingEnabled;
+            storageManager.save('isPriceGroupingEnabled', isPriceGroupingEnabled);
+            updateToggleUI();
+            if (typeof updateTotalSisa === 'function') {
+                updateTotalSisa();
+            }
+        }
+
+        function updateToggleUI() {
+            const toggleBtn = document.getElementById('hargaToggle');
+            if (toggleBtn) {
+                if (isPriceGroupingEnabled) {
+                    toggleBtn.style.color = 'white';
+                    toggleBtn.title = "Perhitungan per Harga: AKTIF (Klik untuk gabungkan)";
+                } else {
+                    toggleBtn.style.color = 'black';
+                    toggleBtn.title = "Perhitungan per Harga: NONAKTIF (Klik untuk pisahkan per harga)";
+                }
+            }
+        }
+        
+        // Call updateToggleUI on initial load after DOM is ready
+        document.addEventListener('DOMContentLoaded', () => {
+            updateToggleUI();
+        });
         
         // Backup and Restore functionality
         document.addEventListener('DOMContentLoaded', function() {
@@ -12020,19 +12050,27 @@ No. Kendaraan: ${noKendaraan}
             
             if (!Array.isArray(dataArray)) return groupedData;
 
-            // FIRST PASS: Group by tebal, ukuran, and harga
+            // FIRST PASS: Group by tebal, ukuran, and optionally harga
             dataArray.forEach((entry) => {
                 if (filterFn && !filterFn(entry)) return;
                 if (!entry.tebal || !entry.ukuran) return;
 
-                const hargaKey = entry.harga !== undefined && entry.harga > 0 ? entry.harga : 'noharga';
-                const key = `${entry.tebal}|${entry.ukuran}|${hargaKey}`;
+                const normTebal = normalizeSpec(entry.tebal);
+                const normUkuran = normalizeSpec(entry.ukuran);
+                const hargaKey = (isPriceGroupingEnabled && entry.harga !== undefined && entry.harga > 0) ? entry.harga : 'noharga';
+                
+                // Use a robust key generation method (JSON stringify) to handle special characters like | or "
+                const key = JSON.stringify([
+                    normTebal, 
+                    normUkuran, 
+                    isPriceGroupingEnabled ? hargaKey : 'all'
+                ]);
 
                 if (!groupedData[key]) {
                     groupedData[key] = { 
-                        tebal: entry.tebal, 
+                        tebal: entry.tebal, // Keep original display version from first entry
                         ukuran: entry.ukuran, 
-                        hargaMasuk: hargaKey !== 'noharga' ? entry.harga : undefined,
+                        hargaMasuk: (isPriceGroupingEnabled && hargaKey !== 'noharga') ? entry.harga : undefined,
                         totalMasuk: 0, 
                         totalKeluar: 0, 
                         totalSisa: 0,
@@ -12046,44 +12084,54 @@ No. Kendaraan: ${noKendaraan}
             });
 
             // SECOND PASS: Distribute 'noharga' sales (keluar) across priced pools (FIFO)
-            const keys = Object.keys(groupedData);
-            const noHargaKeys = keys.filter(k => k.endsWith('|noharga'));
+            if (isPriceGroupingEnabled) {
+                const keys = Object.keys(groupedData);
+                // In JSON key, 'noharga' will be the 3rd element
+                const noHargaKeys = keys.filter(k => k.includes('"noharga"'));
 
-            noHargaKeys.forEach(noHargaKey => {
-                const noHargaGroup = groupedData[noHargaKey];
-                if (noHargaGroup.totalKeluar > 0) {
-                    let remainingKeluar = noHargaGroup.totalKeluar;
-                    
-                    // Find priced groups for the same item type
-                    const pricedGroups = keys
-                        .filter(k => k !== noHargaKey && k.startsWith(`${noHargaGroup.tebal}|${noHargaGroup.ukuran}|`))
-                        .map(k => groupedData[k])
-                        .sort((a, b) => {
-                            // FIFO: Attribute to oldest purchase first
-                            const minIdA = Math.min(...a.entries.map(e => (typeof e.id === 'string' ? parseFloat(e.id) : e.id)));
-                            const minIdB = Math.min(...b.entries.map(e => (typeof e.id === 'string' ? parseFloat(e.id) : e.id)));
-                            return minIdA - minIdB;
+                noHargaKeys.forEach(noHargaKey => {
+                    const noHargaGroup = groupedData[noHargaKey];
+                    if (noHargaGroup.totalKeluar > 0) {
+                        let remainingKeluar = noHargaGroup.totalKeluar;
+                        
+                        const normTebal = normalizeSpec(noHargaGroup.tebal);
+                        const normUkuran = normalizeSpec(noHargaGroup.ukuran);
+                        
+                        // Find priced groups for the same item type
+                        const pricedGroups = keys
+                            .filter(k => {
+                                if (k === noHargaKey) return false;
+                                try {
+                                    const parsed = JSON.parse(k);
+                                    return parsed[0] === normTebal && parsed[1] === normUkuran && parsed[2] !== 'noharga';
+                                } catch (e) { return false; }
+                            })
+                            .map(k => groupedData[k])
+                            .sort((a, b) => {
+                                const minIdA = Math.min(...a.entries.map(e => (typeof e.id === 'string' ? parseFloat(e.id) : e.id)));
+                                const minIdB = Math.min(...b.entries.map(e => (typeof e.id === 'string' ? parseFloat(e.id) : e.id)));
+                                return minIdA - minIdB;
+                            });
+
+                        pricedGroups.forEach(targetGroup => {
+                            if (remainingKeluar <= 0) return;
+                            
+                            const available = targetGroup.totalMasuk - targetGroup.totalKeluar;
+                            if (available > 0) {
+                                const taken = Math.min(remainingKeluar, available);
+                                targetGroup.totalKeluar += taken;
+                                remainingKeluar -= taken;
+                            }
                         });
 
-                    pricedGroups.forEach(targetGroup => {
-                        if (remainingKeluar <= 0) return;
-                        
-                        const available = targetGroup.totalMasuk - targetGroup.totalKeluar;
-                        if (available > 0) {
-                            const taken = Math.min(remainingKeluar, available);
-                            targetGroup.totalKeluar += taken;
-                            remainingKeluar -= taken;
+                        if (remainingKeluar <= 0) {
+                            noHargaGroup.totalKeluar = 0;
+                        } else {
+                            noHargaGroup.totalKeluar = remainingKeluar;
                         }
-                    });
-
-                    // If all attributed, reset the noHargaGroup
-                    if (remainingKeluar <= 0) {
-                        noHargaGroup.totalKeluar = 0;
-                    } else {
-                        noHargaGroup.totalKeluar = remainingKeluar;
                     }
-                }
-            });
+                });
+            }
 
             // Recalculate totalSisa and filter out empty groups
             const finalGroupedData = {};
@@ -12091,10 +12139,10 @@ No. Kendaraan: ${noKendaraan}
                 const group = groupedData[key];
                 group.totalSisa = group.totalMasuk - group.totalKeluar;
                 
-                // Keep the group if it has stock or if it's a priced pool that had transactions
                 if (group.totalMasuk > 0 || group.totalKeluar > 0) {
-                    // Only keep no-price group if it still has negative sisa (unattributed sales)
-                    if (key.endsWith('|noharga') && group.totalSisa >= 0) {
+                    // Check if it's a no-price group in the JSON key
+                    const isNoHarga = key.includes('"noharga"');
+                    if (isPriceGroupingEnabled && isNoHarga && group.totalSisa >= 0) {
                         return;
                     }
                     finalGroupedData[key] = group;
@@ -13296,7 +13344,9 @@ No. Kendaraan: ${noKendaraan}
             <tr>
               <th>Jenis Kaca</th>
               <th>Ukuran Kaca</th>
-              <th>Harga</th>
+              <th id="hargaToggle" onclick="togglePriceGrouping()" style="cursor: pointer; transition: all 0.3s ease; white-space: nowrap;" title="Klik untuk aktifkan/nonaktifkan perhitungan per harga">
+                 Harga
+               </th>
               <th>Kaca Masuk</th>
               <th>Kaca Keluar</th>
               <th>Sisa Stok</th>
@@ -13365,7 +13415,7 @@ No. Kendaraan: ${noKendaraan}
   </div>
 
   <div class="footer">
-    <p>&copy; Rian v21.04.26 | Trae | Cursor | <a href="https://i.redd.it/2plmf8vh7ryf1.jpeg">Privacy Policy</a></p>
+    <p>&copy; Rian v09.05.26 | Trae | Cursor | <a href="https://i.redd.it/2plmf8vh7ryf1.jpeg">Privacy Policy</a></p>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
@@ -13377,10 +13427,24 @@ No. Kendaraan: ${noKendaraan}
     let currentlyEditingId = null;
     let db = null;
     const DB_NAME = 'StokKacaDB';
-    const DB_VERSION = 1;
+    const DB_VERSION = 2;
     const STORE_NAME = 'stokData';
     // Flag to prevent auto-overwrite when user mengisi harga beli/manual
     let hargaManualOverride = false;
+
+    // Helper to normalize product specifications (thickness, size, etc.)
+    function normalizeSpec(s) {
+      if (!s) return '';
+      return String(s)
+        .toLowerCase()
+        // Replace spaces between numbers and units (e.g., "5 mm" -> "5mm")
+        .replace(/(\d+)\s+(mm|cm|m|inch|")/gi, '$1$2')
+        // Normalize 'x' separator for sizes, handling potential units/quotes (e.g., "60\" x 48\"" -> "60\"x48\"")
+        .replace(/([\d.]+(?:"|mm|cm|m|inch)?)\s*x\s*([\d.]+(?:"|mm|cm|m|inch)?)/gi, '$1x$2')
+        // Collapse multiple spaces
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
 
     // Expose functions to window for backup/restore and cross-script access
     window.initDB = initDB;
@@ -13390,6 +13454,7 @@ No. Kendaraan: ${noKendaraan}
     window.updateStokTable = updateStokTable;
     window.updateTotalSisa = updateTotalSisa;
     window.stokData = stokData;
+    window.normalizeSpec = normalizeSpec;
 
     // Initialize IndexedDB
     function initDB() {
@@ -13413,6 +13478,16 @@ No. Kendaraan: ${noKendaraan}
             objectStore.createIndex('id', 'id', { unique: true });
             objectStore.createIndex('tanggal', 'tanggal', { unique: false });
             objectStore.createIndex('nama', 'nama', { unique: false });
+            objectStore.createIndex('tebal', 'tebal', { unique: false });
+            objectStore.createIndex('ukuran', 'ukuran', { unique: false });
+          } else {
+            const objectStore = event.target.transaction.objectStore(STORE_NAME);
+            if (!objectStore.indexNames.contains('tebal')) {
+              objectStore.createIndex('tebal', 'tebal', { unique: false });
+            }
+            if (!objectStore.indexNames.contains('ukuran')) {
+              objectStore.createIndex('ukuran', 'ukuran', { unique: false });
+            }
           }
         };
       });
@@ -13635,6 +13710,8 @@ No. Kendaraan: ${noKendaraan}
       
       // Add Enter key functionality to form inputs
       setupEnterKeyNavigation();
+      // Add Enter key functionality for footer (CONT to SEAL)
+      setupFooterEnterNavigation();
       // Update placeholder when harga beli berubah
       const hargaInput = document.getElementById('harga');
       if (hargaInput) {
@@ -13947,12 +14024,15 @@ No. Kendaraan: ${noKendaraan}
       
       // If both tebal and ukuran are filled, try to get harga
       if (tebal && ukuran) {
+        const normTebal = normalizeSpec(tebal);
+        const normUkuran = normalizeSpec(ukuran);
         const groupedData = {};
         
         stokData.forEach((entry) => {
-          if (entry.tebal === tebal && entry.ukuran === ukuran) {
+          if (normalizeSpec(entry.tebal) === normTebal && normalizeSpec(entry.ukuran) === normUkuran) {
             const hargaKey = entry.harga !== undefined && entry.harga > 0 ? entry.harga : 'noharga';
-            const key = `${entry.tebal}-${entry.ukuran}-${hargaKey}`;
+            // Use JSON key for robustness
+            const key = JSON.stringify([normTebal, normUkuran, hargaKey]);
             
             if (!groupedData[key]) {
               groupedData[key] = { 
@@ -13975,8 +14055,8 @@ No. Kendaraan: ${noKendaraan}
               // If hargaMasuk already set and this is not a masuk entry, keep the existing one
             }
             
-            groupedData[key].totalMasuk += entry.masuk;
-            groupedData[key].totalKeluar += entry.keluar;
+            groupedData[key].totalMasuk += (entry.masuk || 0);
+            groupedData[key].totalKeluar += (entry.keluar || 0);
             groupedData[key].totalSisa = groupedData[key].totalMasuk - groupedData[key].totalKeluar;
           }
         });
@@ -13987,21 +14067,8 @@ No. Kendaraan: ${noKendaraan}
           const data = groupedData[key];
           // Include all entries with stock > 0 and has harga
           if (data.totalSisa > 0) {
-            // Use hargaMasuk if available, otherwise extract from key
             if (data.hargaMasuk !== undefined && data.hargaMasuk > 0) {
               hargaList.push(data.hargaMasuk);
-            } else {
-              // Fallback: extract harga from key (format: tebal-ukuran-harga)
-              const parts = key.split('-');
-              if (parts.length >= 3) {
-                const hargaFromKey = parts.slice(2).join('-'); // Handle harga that might contain dashes
-                if (hargaFromKey !== 'noharga') {
-                  const hargaValue = parseFloat(hargaFromKey);
-                  if (!isNaN(hargaValue) && hargaValue > 0) {
-                    hargaList.push(hargaValue);
-                  }
-                }
-              }
             }
           }
         }
@@ -14390,6 +14457,21 @@ No. Kendaraan: ${noKendaraan}
       });
     }
 
+    // Function to setup Enter key navigation for footer (CONT to SEAL)
+    function setupFooterEnterNavigation() {
+      const contInput = document.querySelector('.cont-input');
+      const sealInput = document.querySelector('.seal-input');
+      
+      if (contInput && sealInput) {
+        contInput.addEventListener('keydown', function(e) {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            sealInput.focus();
+          }
+        });
+      }
+    }
+
     // Function to perform search
     function performSearch() {
       const searchInput = document.getElementById('searchInput');
@@ -14398,7 +14480,7 @@ No. Kendaraan: ${noKendaraan}
       const tableBody = document.getElementById("stokTable");
 
       // Reset active item filter if user manually searches
-      const filterText = activeItemFilter ? `${activeItemFilter.tebal} ${activeItemFilter.ukuran}${activeItemFilter.harga !== undefined ? ` ${activeItemFilter.harga.toLocaleString('id-ID')}` : ''}` : '';
+      const filterText = activeItemFilter ? `${activeItemFilter.tebal} ${activeItemFilter.ukuran}${(isPriceGroupingEnabled && activeItemFilter.harga !== undefined) ? ` ${activeItemFilter.harga.toLocaleString('id-ID')}` : ''}` : '';
       if (activeItemFilter && searchTerm !== filterText) {
         activeItemFilter = null;
         currentlyReorderingId = null; // Also reset reorder mode
@@ -14766,14 +14848,24 @@ No. Kendaraan: ${noKendaraan}
     
     function calculateCurrentStock(entry, data) {
       const sourceData = data || stokData;
-      // Get all entries of the same type (tebal + ukuran + harga)
-      // We always group by price to show separate running balance for each price pool
-      const targetPrice = entry.harga ?? null;
+      // Get all entries of the same type (tebal + ukuran)
+      const normTebal = normalizeSpec(entry.tebal);
+      const normUkuran = normalizeSpec(entry.ukuran);
       
       const sameTypeEntries = sourceData.filter(e => {
-        return e.tebal === entry.tebal && 
-               e.ukuran === entry.ukuran &&
-               (e.harga ?? null) === targetPrice;
+        const matchBase = normalizeSpec(e.tebal) === normTebal && 
+                         normalizeSpec(e.ukuran) === normUkuran;
+        
+        if (!matchBase) return false;
+
+        // If price grouping is enabled, we MUST match by exact price pool
+        if (isPriceGroupingEnabled) {
+          const targetPrice = entry.harga ?? null;
+          return (e.harga ?? null) === targetPrice;
+        }
+        
+        // If disabled, we aggregate all prices for this product
+        return true;
       });
       
       // Sort by date and ID (oldest first) - using cached date parsing
@@ -14827,11 +14919,23 @@ No. Kendaraan: ${noKendaraan}
         : [...stokData];
 
       if (activeItemFilter) {
-        dataSource = dataSource.filter(entry => 
-          entry.tebal === activeItemFilter.tebal && 
-          entry.ukuran === activeItemFilter.ukuran &&
-          ((entry.harga ?? null) === (activeItemFilter.harga ?? null))
-        );
+        const normFilterTebal = normalizeSpec(activeItemFilter.tebal);
+        const normFilterUkuran = normalizeSpec(activeItemFilter.ukuran);
+        
+        dataSource = dataSource.filter(entry => {
+          const matchBase = normalizeSpec(entry.tebal) === normFilterTebal && 
+                           normalizeSpec(entry.ukuran) === normFilterUkuran;
+          
+          if (!matchBase) return false;
+          
+          // If price grouping is enabled, we MUST match by price to reorder within that price pool
+          if (isPriceGroupingEnabled && activeItemFilter.hasOwnProperty('harga')) {
+            return (entry.harga ?? null) === (activeItemFilter.harga ?? null);
+          }
+          
+          // If grouping is disabled, we reorder within the aggregate product pool
+          return true;
+        });
       }
 
       // Sort chronological (same as flow analysis)
@@ -14979,7 +15083,27 @@ No. Kendaraan: ${noKendaraan}
 
     // Function to update Riwayat Stok table
     function updateStokTable() {
+      const tableHead = document.getElementById("stokTable").getElementsByTagName('thead')[0];
       const tableBody = document.getElementById("stokTable").getElementsByTagName('tbody')[0];
+      
+      // Update Table Headers based on isPriceGroupingEnabled
+      if (tableHead) {
+        const headerRow = tableHead.rows[0];
+        if (headerRow) {
+          // Columns: No(0), Nama(1), Tanggal(2), Nota(3), Jenis(4), Ukuran(5), HargaBeli(6), HargaJual(7), Masuk(8), Keluar(9), Sisa(10), Aksi(11)
+          const hargaBeliHeader = headerRow.cells[6];
+          const hargaJualHeader = headerRow.cells[7];
+          
+          if (isPriceGroupingEnabled) {
+            if (hargaBeliHeader) hargaBeliHeader.style.display = '';
+            if (hargaJualHeader) hargaJualHeader.style.display = '';
+          } else {
+            if (hargaBeliHeader) hargaBeliHeader.style.display = 'none';
+            if (hargaJualHeader) hargaJualHeader.style.display = 'none';
+          }
+        }
+      }
+
       tableBody.innerHTML = ""; // Clear the table body
 
       // Use window.stokData if available (for sync with surat jalan), otherwise use local stokData
@@ -14994,13 +15118,16 @@ No. Kendaraan: ${noKendaraan}
 
       // Apply active item filter if set
       if (activeItemFilter) {
+        const normFilterTebal = normalizeSpec(activeItemFilter.tebal);
+        const normFilterUkuran = normalizeSpec(activeItemFilter.ukuran);
+        
         dataSource = dataSource.filter(entry => {
-          const matchBase = entry.tebal === activeItemFilter.tebal && 
-                           entry.ukuran === activeItemFilter.ukuran;
+          const matchBase = normalizeSpec(entry.tebal) === normFilterTebal && 
+                           normalizeSpec(entry.ukuran) === normFilterUkuran;
           
           if (!matchBase) return false;
           
-          // If filter includes price, match by price too
+          // If filter includes price (which only happens if isPriceGroupingEnabled is true), match by price too
           if (activeItemFilter.hasOwnProperty('harga')) {
             return (entry.harga ?? null) === (activeItemFilter.harga ?? null);
           }
@@ -15057,8 +15184,8 @@ No. Kendaraan: ${noKendaraan}
           <td>${entry.nota || '-'}</td>
           <td>${entry.tebal || '-'}</td>
           <td>${entry.ukuran || '-'}</td>
-          <td>${displayHarga}</td>
-          <td>${displayHargaJual}</td>
+          <td style="display: ${isPriceGroupingEnabled ? '' : 'none'}">${displayHarga}</td>
+          <td style="display: ${isPriceGroupingEnabled ? '' : 'none'}">${displayHargaJual}</td>
           <td class="masuk">${displayMasuk}</td>
           <td class="keluar">${displayKeluar}</td>
           <td class="sisa">${displaySisa}</td>
@@ -15336,14 +15463,18 @@ No. Kendaraan: ${noKendaraan}
           // Filter history table
           activeItemFilter = {
             tebal: data.tebal,
-            ukuran: data.ukuran,
-            harga: data.hargaMasuk
+            ukuran: data.ukuran
           };
+          
+          // Only add price filter if price grouping is enabled and price exists
+          if (isPriceGroupingEnabled && data.hargaMasuk !== undefined) {
+            activeItemFilter.harga = data.hargaMasuk;
+          }
           
           // Update search input to show what's being filtered
           const searchInput = document.getElementById('searchInput');
           if (searchInput) {
-            const hargaText = data.hargaMasuk !== undefined ? ` ${data.hargaMasuk.toLocaleString('id-ID')}` : '';
+            const hargaText = (isPriceGroupingEnabled && data.hargaMasuk !== undefined) ? ` ${data.hargaMasuk.toLocaleString('id-ID')}` : '';
             searchInput.value = `${data.tebal} ${data.ukuran}${hargaText}`;
             const searchClearBtn = document.getElementById('searchClearBtn');
             if (searchClearBtn) searchClearBtn.style.display = 'block';
@@ -15451,36 +15582,49 @@ No. Kendaraan: ${noKendaraan}
           return;
         }
 
-        // Prepare data for export (without ID column)
-        const exportData = dataSource.map(entry => ({
-          'Nama Toko': entry.nama || '',
-          'Tanggal': entry.tanggal || '',
-          'No. Nota': entry.nota || '',
-          'Jenis Kaca': entry.tebal || '',
-          'Ukuran Kaca': entry.ukuran || '',
-          'Harga Beli': entry.harga || 0,
-          'Harga Jual': entry.hargaJual || 0,
-          'Jumlah Masuk': entry.masuk || 0,
-          'Jumlah Keluar': entry.keluar || 0,
-          'Sisa Stok': calculateCurrentStock(entry) || 0
-        }));
+        // Prepare data for export (respecting price grouping toggle)
+        const exportData = dataSource.map(entry => {
+          const item = {
+            'Nama Toko': entry.nama || '',
+            'Tanggal': entry.tanggal || '',
+            'No. Nota': entry.nota || '',
+            'Jenis Kaca': entry.tebal || '',
+            'Ukuran Kaca': entry.ukuran || '',
+          };
+
+          if (isPriceGroupingEnabled) {
+            item['Harga Beli'] = entry.harga || 0;
+            item['Harga Jual'] = entry.hargaJual || 0;
+          }
+
+          item['Jumlah Masuk'] = entry.masuk || 0;
+          item['Jumlah Keluar'] = entry.keluar || 0;
+          item['Sisa Stok'] = calculateCurrentStock(entry, dataSource) || 0;
+          
+          return item;
+        });
 
         // Create worksheet
         const ws = XLSX.utils.json_to_sheet(exportData);
         
-        // Set column widths for better readability (without ID column)
+        // Set column widths for better readability
         const colWidths = [
           { wch: 20 }, // Nama Toko
           { wch: 12 }, // Tanggal
           { wch: 15 }, // No. Nota
           { wch: 20 }, // Jenis Kaca
           { wch: 15 }, // Ukuran Kaca
-          { wch: 12 }, // Harga Beli
-          { wch: 12 }, // Harga Jual
-          { wch: 12 }, // Jumlah Masuk
-          { wch: 12 }, // Jumlah Keluar
-          { wch: 12 }  // Sisa Stok
         ];
+
+        if (isPriceGroupingEnabled) {
+          colWidths.push({ wch: 12 }); // Harga Beli
+          colWidths.push({ wch: 12 }); // Harga Jual
+        }
+
+        colWidths.push({ wch: 12 }); // Jumlah Masuk
+        colWidths.push({ wch: 12 }); // Jumlah Keluar
+        colWidths.push({ wch: 12 }); // Sisa Stok
+        
         ws['!cols'] = colWidths;
         
         // Create workbook
@@ -15533,14 +15677,22 @@ No. Kendaraan: ${noKendaraan}
         const sortedData = sortGroupedData(groupedData);
 
         // Prepare data for export
-        const exportData = sortedData.map(({ data }) => ({
-          'Jenis Kaca': data.tebal || '',
-          'Ukuran Kaca': data.ukuran || '',
-          'Harga': data.hargaMasuk !== undefined ? data.hargaMasuk : 0,
-          'Kaca Masuk': data.totalMasuk || 0,
-          'Kaca Keluar': data.totalKeluar || 0,
-          'Sisa Stok': data.totalSisa || 0
-        }));
+        const exportData = sortedData.map(({ data }) => {
+          const item = {
+            'Jenis Kaca': data.tebal || '',
+            'Ukuran Kaca': data.ukuran || '',
+          };
+
+          if (isPriceGroupingEnabled) {
+            item['Harga'] = data.hargaMasuk !== undefined ? data.hargaMasuk : 0;
+          }
+
+          item['Kaca Masuk'] = data.totalMasuk || 0;
+          item['Kaca Keluar'] = data.totalKeluar || 0;
+          item['Sisa Stok'] = data.totalSisa || 0;
+          
+          return item;
+        });
 
         if (exportData.length === 0) {
           showStatus("Tidak ada data stok untuk diexport", "error");
@@ -15558,11 +15710,16 @@ No. Kendaraan: ${noKendaraan}
         const colWidths = [
           { wch: 20 }, // Jenis Kaca
           { wch: 15 }, // Ukuran Kaca
-          { wch: 12 }, // Harga
-          { wch: 12 }, // Kaca Masuk
-          { wch: 12 }, // Kaca Keluar
-          { wch: 12 }  // Sisa Stok
         ];
+
+        if (isPriceGroupingEnabled) {
+          colWidths.push({ wch: 12 }); // Harga
+        }
+
+        colWidths.push({ wch: 12 }); // Kaca Masuk
+        colWidths.push({ wch: 12 }); // Kaca Keluar
+        colWidths.push({ wch: 12 }); // Sisa Stok
+        
         ws['!cols'] = colWidths;
         
         // Create workbook
