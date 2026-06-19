@@ -1,18 +1,87 @@
 "use strict";
 // ===== SURAT JALAN JS =====
-// ===== PERFORMANCE: Production DEBUG flag =====
-const DEBUG = false; // Set true untuk melihat console.log saat development
+// ===== PERFORMANCE: Production DEBUG flag + DOM Cache + Utilities =====
+const DEBUG = false;
 
+// --- DOM Cache: hindari querySelector berulang ---
+const _dom = {};
+function $(id) {
+  if (!_dom[id]) {
+    const el = document.getElementById(id);
+    if (el) _dom[id] = el;
+  }
+  return _dom[id];
+}
+function $$(sel, ctx) { return (ctx || document).querySelector(sel); }
+function $$$(sel, ctx) { return (ctx || document).querySelectorAll(sel); }
+
+// --- Smart console: skip evaluation of args saat production ---
 if (!DEBUG) {
-    // Simpan referensi asli untuk error/warn saja (tetap penting)
-    const _origError = console.error;
-    const _origWarn = console.warn;
-    // Override semua console agar tidak membloking runtime
-    console.log = function(){};
-    console.debug = function(){};
-    console.info = function(){};
-    // Tetap tampilkan error dan warn di production
-    // (jika ingin disable juga, ubah jadi function(){})
+  const _noop = function(){};
+  // Hanya buat log beneran untuk error & warn
+  window._log = _noop;
+  window._debug = _noop;
+  window._info = _noop;
+  console.log = _noop;
+  console.debug = _noop;
+  console.info = _noop;
+} else {
+  window._log = console.log.bind(console, '[LOG]');
+  window._debug = console.debug.bind(console, '[DEBUG]');
+  window._info = console.info.bind(console, '[INFO]');
+}
+
+// --- RAF-based style batching: kumpulkan perubahan style lalu flush per frame ---
+const _styleBatch = [];
+function _applyStyle(el, prop, val) {
+  _styleBatch.push({ el, prop, val });
+  if (_styleBatch.length === 1) {
+    requestAnimationFrame(() => {
+      for (let i = 0; i < _styleBatch.length; i++) {
+        const s = _styleBatch[i];
+        s.el.style[s.prop] = s.val;
+      }
+      _styleBatch.length = 0;
+    });
+  }
+}
+// ==============================================
+
+// --- Render Scheduler: kumpulkan permintaan render, flush sekali per frame ---
+const _renderQueue = new Set();
+let _renderScheduled = false;
+function _scheduleRender(fn) {
+  _renderQueue.add(fn);
+  if (!_renderScheduled) {
+    _renderScheduled = true;
+    requestAnimationFrame(() => {
+      _renderScheduled = false;
+      _renderQueue.forEach(f => { try { f(); } catch(_) {} });
+      _renderQueue.clear();
+    });
+  }
+}
+// Render batch: panggil update functions hanya sekali per frame
+let _needsStokTable = false, _needsTotalSisa = false;
+let _needsNamaList = false, _needsJenisList = false, _needsUkuranList = false;
+let _needsKacaSuggest = false;
+function _batchRender() {
+  if (_needsStokTable) { _needsStokTable = false; try { updateStokTable(true); } catch(_) {} }
+  if (_needsTotalSisa) { _needsTotalSisa = false; try { updateTotalSisa(); } catch(_) {} }
+  if (_needsNamaList) { _needsNamaList = false; try { updateNamaTokoList(); } catch(_) {} }
+  if (_needsJenisList) { _needsJenisList = false; try { updateJenisKacaList(); } catch(_) {} }
+  if (_needsUkuranList) { _needsUkuranList = false; try { updateUkuranKacaList(); } catch(_) {} }
+  if (_needsKacaSuggest) { _needsKacaSuggest = false; try { updateKacaSuggestionsFromLogs(); } catch(_) {} }
+}
+function _markRender(flags) {
+  // flags: bitmask — 1:stokTable, 2:totalSisa, 4:namaList, 8:jenisList, 16:ukuranList, 32:kacaSuggest
+  if (flags & 1) _needsStokTable = true;
+  if (flags & 2) _needsTotalSisa = true;
+  if (flags & 4) _needsNamaList = true;
+  if (flags & 8) _needsJenisList = true;
+  if (flags & 16) _needsUkuranList = true;
+  if (flags & 32) _needsKacaSuggest = true;
+  _scheduleRender(_batchRender);
 }
 // ==============================================
 
@@ -23,12 +92,12 @@ if (!DEBUG) {
             
             // Respect lock mechanism
             if (ukuranInput.getAttribute('data-price-locked') === 'true') {
-                console.log('[Force Update] Skipped due to price lock');
+                _log('[Force Update] Skipped due to price lock');
                 return;
             }
             
             const ukuranValue = ukuranInput.value.trim();
-            console.log(`[Force Update] Processing for value: "${ukuranValue}"`);
+            _log(`[Force Update] Processing for value: "${ukuranValue}"`);
             
             const ukuranList = document.getElementById('datalistUkuran');
             if (!ukuranList) return;
@@ -50,7 +119,7 @@ if (!DEBUG) {
                     });
                     if (matchingByDataHarga) {
                         // Current selection is still valid, keep it and return
-                        console.log('[Force Update] Current selection still valid, skipping update');
+                        _log('[Force Update] Current selection still valid, skipping update');
                         return;
                     }
                 }
@@ -73,7 +142,7 @@ if (!DEBUG) {
                         });
                         if (matchingByHarga) {
                             selectedOption = matchingByHarga;
-                            console.log('[Force Update] Matched by existing price value');
+                            _log('[Force Update] Matched by existing price value');
                         }
                     }
                     
@@ -85,7 +154,7 @@ if (!DEBUG) {
                         });
                         if (matchingByDataHarga) {
                             selectedOption = matchingByDataHarga;
-                             console.log('[Force Update] Matched by previous selected price');
+                             _log('[Force Update] Matched by previous selected price');
                         }
                     }
                 }
@@ -93,13 +162,13 @@ if (!DEBUG) {
                 // If still no match, use first option
                 if (!selectedOption) {
                     selectedOption = matchingOptions[0];
-                    console.log('[Force Update] Fallback to first match');
+                    _log('[Force Update] Fallback to first match');
                 }
                 
                 // Update data-selected-harga only if we found a different option
                 const hargaAttr = selectedOption.getAttribute('data-harga');
                 if (hargaAttr) {
-                    console.log(`[Force Update] Selected price: ${hargaAttr}`);
+                    _log(`[Force Update] Selected price: ${hargaAttr}`);
                     // Always update attributes
                     ukuranInput.setAttribute('data-selected-harga', hargaAttr);
                     const row = ukuranInput.closest('tr');
@@ -120,7 +189,7 @@ if (!DEBUG) {
                                     const newPlaceholder = `Rp ${firstHarga.toLocaleString('id-ID')}`;
                                     if (hargaJualInput.placeholder !== newPlaceholder) {
                                         hargaJualInput.placeholder = newPlaceholder;
-                                        console.log(`[Force Update] Updated placeholder to: ${newPlaceholder}`);
+                                        _log(`[Force Update] Updated placeholder to: ${newPlaceholder}`);
                                     }
                                 }
                             }
@@ -215,9 +284,9 @@ if (!DEBUG) {
                             const targetNota = originalNomorSJ.trim();
                             return entryNota === targetNota && !entry.logEntryId; 
                         });
-                        console.log(`Legacy fallback: Found ${existingTransactions.length} transactions by nota ${originalNomorSJ}`);
+                        _log(`Legacy fallback: Found ${existingTransactions.length} transactions by nota ${originalNomorSJ}`);
                     } else {
-                        console.log(`Found ${existingTransactions.length} existing transactions for log ${currentLogEntryId}`);
+                        _log(`Found ${existingTransactions.length} existing transactions for log ${currentLogEntryId}`);
                     }
                 } else if (originalNomorSJ) {
                     // This block is for cases where lastLogEntryId might be missing
@@ -226,7 +295,7 @@ if (!DEBUG) {
                         const targetNota = originalNomorSJ.trim();
                         return entryNota === targetNota && !entry.logEntryId; 
                     });
-                    console.log(`Found ${existingTransactions.length} existing transactions for nota ${originalNomorSJ}`);
+                    _log(`Found ${existingTransactions.length} existing transactions for nota ${originalNomorSJ}`);
                 }
                 
                 // Sort by ID to ensure consistent index-based fallback if needed
@@ -406,7 +475,7 @@ if (!DEBUG) {
                                 if (typeof updateEntry === 'function') {
                                     await updateEntry(transaction);
                                 }
-                                console.log(`Updated transaction ID ${transaction.id}`);
+                                _log(`Updated transaction ID ${transaction.id}`);
                             } else {
                                 // Add new
                                 if (Array.isArray(window.stokData)) {
@@ -416,7 +485,7 @@ if (!DEBUG) {
                                 if (typeof addEntry === 'function') {
                                     await addEntry(transaction);
                                 }
-                                console.log(`Created transaction ID ${transaction.id}`);
+                                _log(`Created transaction ID ${transaction.id}`);
                             }
                         } catch (error) {
                             console.error('Error saving transaction:', transaction, error);
@@ -427,7 +496,7 @@ if (!DEBUG) {
                 // DELETE EXTRA (Existing transactions that are no longer in the form)
                 const transactionsToDelete = existingTransactions.filter(t => !processedIds.has(t.id));
                 if (transactionsToDelete.length > 0) {
-                    console.log(`Deleting ${transactionsToDelete.length} extra transactions (items removed from form)`);
+                    _log(`Deleting ${transactionsToDelete.length} extra transactions (items removed from form)`);
                     for (const transaction of transactionsToDelete) {
                         try {
                             let deleteFunc = null;
@@ -448,29 +517,15 @@ if (!DEBUG) {
                 // Sync stokData local variable with window.stokData
                 if (typeof window.stokData !== 'undefined' && Array.isArray(window.stokData)) {
                     if (typeof stokData !== 'undefined') {
-                        // Update local stokData to match window.stokData
-                        stokData = [...window.stokData];
+                        // Update local stokData to match window.stokData (hindari spread penuh)
+                        stokData = window.stokData;
                     }
                 }
                     
-                // Update stok table and related UI if functions are available
-                if (typeof updateStokTable === 'function') {
-                    updateStokTable();
-                }
-                if (typeof updateTotalSisa === 'function') {
-                    updateTotalSisa();
-                }
-                if (typeof updateNamaTokoList === 'function') {
-                    updateNamaTokoList();
-                }
-                if (typeof updateJenisKacaList === 'function') {
-                    updateJenisKacaList();
-                }
-                if (typeof updateUkuranKacaList === 'function') {
-                    updateUkuranKacaList();
-                }
-                    
-                console.log(`Processed ${transactionsToSave.length} stok transactions (Updated: ${transactionsToSave.filter(t => t.isUpdate).length}, Created: ${transactionsToSave.filter(t => !t.isUpdate).length})`);
+                // Batch update UI — semua dalam satu frame
+                _markRender(1|2|4|8|16);
+
+                _log(`Processed ${transactionsToSave.length} stok transactions (Updated: ${transactionsToSave.filter(t => t.isUpdate).length}, Created: ${transactionsToSave.filter(t => !t.isUpdate).length})`);
                 
             } catch (error) {
                 console.error('Error recording stok transactions from surat jalan:', error);
@@ -633,28 +688,14 @@ if (!DEBUG) {
                     // Sync stokData local variable with window.stokData
                     if (typeof window.stokData !== 'undefined' && Array.isArray(window.stokData)) {
                         if (typeof stokData !== 'undefined') {
-                            stokData = [...window.stokData];
+                            stokData = window.stokData;
                         }
                     }
                     
-                    // Update stok table and related UI if functions are available
-                    if (typeof updateStokTable === 'function') {
-                        updateStokTable();
-                    }
-                    if (typeof updateTotalSisa === 'function') {
-                        updateTotalSisa();
-                    }
-                    if (typeof updateNamaTokoList === 'function') {
-                        updateNamaTokoList();
-                    }
-                    if (typeof updateJenisKacaList === 'function') {
-                        updateJenisKacaList();
-                    }
-                    if (typeof updateUkuranKacaList === 'function') {
-                        updateUkuranKacaList();
-                    }
-                    
-                    console.log(`✅ Processed ${transactions.length} stok transactions from ${importedEntries.length} imported log entries`);
+                    // Batch update UI
+                    _markRender(1|2|4|8|16);
+
+                    _log(`✅ Processed ${transactions.length} stok transactions from ${importedEntries.length} imported log entries`);
                 }
             } catch (error) {
                 console.error('Error processing stok from imported logs:', error);
@@ -758,7 +799,7 @@ if (!DEBUG) {
             
             // Format tanggal Indonesia
             const tanggalIndonesia = date.toLocaleDateString('id-ID', options);
-            console.log('Tanggal yang dipilih:', tanggalIndonesia);
+            _log('Tanggal yang dipilih:', tanggalIndonesia);
         });
 
         // Format angka ke format ribuan saat diketik
@@ -819,7 +860,7 @@ No. Kendaraan: ${noKendaraan}
             `;
             
             alert(output);
-            console.log(output);
+            _log(output);
         });
 
         // Set tanggal default ke hari ini
@@ -844,14 +885,14 @@ No. Kendaraan: ${noKendaraan}
                     try {
                         // Method 2: sessionStorage (fallback)
                         sessionStorage.setItem(key, JSON.stringify(data));
-                        console.log(`✅ Data saved to sessionStorage: ${key}`);
+                        _log(`✅ Data saved to sessionStorage: ${key}`);
                         return true;
                     } catch (e2) {
                         console.warn(`⚠️ sessionStorage failed for ${key}, using memory fallback`);
                         
                         // Method 3: In-memory storage (last resort)
                         this.fallbackData[key] = data;
-                        console.log(`✅ Data saved to memory fallback: ${key}`);
+                        _log(`✅ Data saved to memory fallback: ${key}`);
                         return true;
                     }
                 }
@@ -872,7 +913,7 @@ No. Kendaraan: ${noKendaraan}
                     // Method 2: sessionStorage
                     const data = sessionStorage.getItem(key);
                     if (data) {
-                        console.log(`✅ Data loaded from sessionStorage: ${key}`);
+                        _log(`✅ Data loaded from sessionStorage: ${key}`);
                         return JSON.parse(data);
                     }
                 } catch (e) {
@@ -881,11 +922,11 @@ No. Kendaraan: ${noKendaraan}
                 
                 // Method 3: In-memory fallback
                 if (this.fallbackData[key]) {
-                    console.log(`✅ Data loaded from memory fallback: ${key}`);
+                    _log(`✅ Data loaded from memory fallback: ${key}`);
                     return this.fallbackData[key];
                 }
                 
-                console.log(`ℹ️ No data found for key: ${key}`);
+                _log(`ℹ️ No data found for key: ${key}`);
                 return null;
             }
             
@@ -932,21 +973,21 @@ No. Kendaraan: ${noKendaraan}
                     
                     if (Array.isArray(idbLogHistory) && idbLogHistory.length > 0) {
                         allData['inputLogHistory'] = idbLogHistory;
-                        console.log('✅ Input log included in backup from IndexedDB:', idbLogHistory.length, 'entries');
+                        _log('✅ Input log included in backup from IndexedDB:', idbLogHistory.length, 'entries');
                     } else if (allData['inputLogHistory'] && Array.isArray(allData['inputLogHistory'])) {
-                        console.log('✅ Input log included in backup from localStorage:', allData['inputLogHistory'].length, 'entries');
+                        _log('✅ Input log included in backup from localStorage:', allData['inputLogHistory'].length, 'entries');
                     } else if (typeof window !== 'undefined' && window.inputLogHistory && Array.isArray(window.inputLogHistory)) {
                         allData['inputLogHistory'] = window.inputLogHistory;
-                        console.log('✅ Input log included in backup from window.inputLogHistory:', window.inputLogHistory.length, 'entries');
+                        _log('✅ Input log included in backup from window.inputLogHistory:', window.inputLogHistory.length, 'entries');
                     }
                 } catch (e) {
                     console.warn('⚠️ Failed to export input log from IndexedDB, trying alternatives:', e);
                     // Fallback to localStorage or window variable
                     if (allData['inputLogHistory'] && Array.isArray(allData['inputLogHistory'])) {
-                        console.log('✅ Input log included in backup from localStorage:', allData['inputLogHistory'].length, 'entries');
+                        _log('✅ Input log included in backup from localStorage:', allData['inputLogHistory'].length, 'entries');
                     } else if (typeof window !== 'undefined' && window.inputLogHistory && Array.isArray(window.inputLogHistory)) {
                         allData['inputLogHistory'] = window.inputLogHistory;
-                        console.log('✅ Input log included in backup from window.inputLogHistory:', window.inputLogHistory.length, 'entries');
+                        _log('✅ Input log included in backup from window.inputLogHistory:', window.inputLogHistory.length, 'entries');
                     }
                 }
                 
@@ -956,13 +997,13 @@ No. Kendaraan: ${noKendaraan}
                         const stokDataArray = await window.loadData();
                         if (Array.isArray(stokDataArray) && stokDataArray.length > 0) {
                             allData['stokData'] = stokDataArray;
-                            console.log('✅ Riwayat stok included in backup:', stokDataArray.length, 'entries');
+                            _log('✅ Riwayat stok included in backup:', stokDataArray.length, 'entries');
                         }
                     } else if (typeof loadData === 'function') {
                         const stokDataArray = await loadData();
                         if (Array.isArray(stokDataArray) && stokDataArray.length > 0) {
                             allData['stokData'] = stokDataArray;
-                            console.log('✅ Riwayat stok included in backup:', stokDataArray.length, 'entries');
+                            _log('✅ Riwayat stok included in backup:', stokDataArray.length, 'entries');
                         }
                     }
                 } catch (e) {
@@ -1011,19 +1052,9 @@ No. Kendaraan: ${noKendaraan}
                                     }
                                     
                                     // Update tables if functions are available
-                                    if (typeof window.updateStokTable === 'function') {
-                                        window.updateStokTable();
-                                    } else if (typeof updateStokTable === 'function') {
-                                        updateStokTable();
-                                    }
-                                    
-                                    if (typeof window.updateTotalSisa === 'function') {
-                                        window.updateTotalSisa();
-                                    } else if (typeof updateTotalSisa === 'function') {
-                                        updateTotalSisa();
-                                    }
-                                    
-                                    console.log('✅ Riwayat stok imported successfully:', data.stokData.length, 'entries');
+                                    _markRender(1|2);
+
+                                    _log('✅ Riwayat stok imported successfully:', data.stokData.length, 'entries');
                                 }
                             } else if (typeof window.addEntry === 'function' || typeof addEntry === 'function') {
                                 // Fallback: use addEntry function if available
@@ -1038,14 +1069,8 @@ No. Kendaraan: ${noKendaraan}
                                 }
                                 
                                 // Update tables if functions are available
-                                if (typeof window.updateStokTable === 'function') {
-                                    window.updateStokTable();
-                                }
-                                if (typeof window.updateTotalSisa === 'function') {
-                                    window.updateTotalSisa();
-                                }
-                                
-                                console.log('✅ Riwayat stok imported via addEntry:', data.stokData.length, 'entries');
+                                _markRender(1|2);
+                                _log('✅ Riwayat stok imported via addEntry:', data.stokData.length, 'entries');
                             }
                             
                             // Remove stokData from data object to avoid saving to localStorage
@@ -1084,7 +1109,7 @@ No. Kendaraan: ${noKendaraan}
                                     tx.objectStore('kv').put({ key: 'inputLogHistory', value: data.inputLogHistory });
                                 });
                                 db.close();
-                                console.log('✅ Input log saved to IndexedDB:', data.inputLogHistory.length, 'entries');
+                                _log('✅ Input log saved to IndexedDB:', data.inputLogHistory.length, 'entries');
                             } catch (e) {
                                 console.warn('⚠️ Failed to save input log to IndexedDB:', e);
                             }
@@ -1100,7 +1125,7 @@ No. Kendaraan: ${noKendaraan}
                             // Render the log
                             if (typeof renderInputLog === 'function') {
                                 renderInputLog();
-                                console.log('✅ Input log rendered after restore');
+                                _log('✅ Input log rendered after restore');
                             }
                             
                             // Update suggestions
@@ -1113,7 +1138,7 @@ No. Kendaraan: ${noKendaraan}
                                 window.refreshNomorSJWarningNow();
                             }
                             
-                            console.log('✅ Input log imported and rendered:', data.inputLogHistory.length, 'entries');
+                            _log('✅ Input log imported and rendered:', data.inputLogHistory.length, 'entries');
                         } catch (e) {
                             console.warn('⚠️ Failed to render input log after restore:', e);
                         }
@@ -1131,7 +1156,7 @@ No. Kendaraan: ${noKendaraan}
                         }
                     }
                     
-                    console.log('✅ Data imported successfully');
+                    _log('✅ Data imported successfully');
                     return true;
                 } catch (e) {
                     console.error('❌ Failed to import data:', e);
@@ -1149,9 +1174,7 @@ No. Kendaraan: ${noKendaraan}
             isPriceGroupingEnabled = !isPriceGroupingEnabled;
             storageManager.save('isPriceGroupingEnabled', isPriceGroupingEnabled);
             updateToggleUI();
-            if (typeof updateTotalSisa === 'function') {
-                updateTotalSisa();
-            }
+            _markRender(2);
         }
 
         function updateToggleUI() {
@@ -1588,7 +1611,7 @@ No. Kendaraan: ${noKendaraan}
         function updateHargaUkuranLogic(inputElement, forceUpdate = false, explicitSize = null, explicitPrice = null) {
             const originalValue = inputElement.value.trim();
             
-            console.log(`[Price Update] Processing update for value: "${originalValue}", force: ${forceUpdate}`);
+            _log(`[Price Update] Processing update for value: "${originalValue}", force: ${forceUpdate}`);
             
             // Check for price suffix from unique options (e.g. "10x10 (Rp 5.000)")
             const priceMatch = originalValue.match(/(.*)\s+\(Rp\s+[\d\.,]+\)$/);
@@ -1598,7 +1621,7 @@ No. Kendaraan: ${noKendaraan}
             if (priceMatch) {
                 cleanValue = priceMatch[1].trim();
                 hasPriceSuffix = true;
-                console.log(`[Price Update] Detected price suffix. Clean value: "${cleanValue}"`);
+                _log(`[Price Update] Detected price suffix. Clean value: "${cleanValue}"`);
             }
 
             const currentHarga = inputElement.getAttribute('data-selected-harga') || '';
@@ -1619,7 +1642,7 @@ No. Kendaraan: ${noKendaraan}
             // Update if value changed OR if harga might have changed (same ukuran, different harga)
             // Also force update if explicitly requested
             if (!forceUpdate && cleanValue === lastUkuranValue && cleanValue && currentHarga === lastSelectedHarga && !hasPriceSuffix) {
-                console.log('[Price Update] Skipping update - no changes detected');
+                _log('[Price Update] Skipping update - no changes detected');
                 return;
             }
             
@@ -1634,14 +1657,14 @@ No. Kendaraan: ${noKendaraan}
             // even if the input value is just the size (without suffix)
             let lockedPrice = null;
             if (lockSize && lockPrice && cleanValue === lockSize) {
-                 console.log(`[Price Update] Using explicit lock for size "${lockSize}" with price "${lockPrice}"`);
+                 _log(`[Price Update] Using explicit lock for size "${lockSize}" with price "${lockPrice}"`);
                  lockedPrice = lockPrice;
                  // Ensure attributes are set if they were passed as args
                  if (explicitSize) inputElement.setAttribute('data-explicit-size', explicitSize);
                  if (explicitPrice) inputElement.setAttribute('data-explicit-price', explicitPrice);
             } else if (cleanValue !== lockSize && lockSize) {
                  // Size changed, clear lock
-                 console.log('[Price Update] Size changed, clearing explicit lock');
+                 _log('[Price Update] Size changed, clearing explicit lock');
                  inputElement.removeAttribute('data-explicit-size');
                  inputElement.removeAttribute('data-explicit-price');
             }
@@ -1670,7 +1693,7 @@ No. Kendaraan: ${noKendaraan}
                     // If multiple options found, use smart matching
                     let selectedOption = null;
                     if (matchingOptions.length > 0) {
-                        console.log(`[Price Update] Found ${matchingOptions.length} matching options`);
+                        _log(`[Price Update] Found ${matchingOptions.length} matching options`);
                         
                         // PRIORITY 1: Explicit Locked Price
                         if (lockedPrice) {
@@ -1678,7 +1701,7 @@ No. Kendaraan: ${noKendaraan}
                                 const optHarga = opt.getAttribute('data-harga');
                                 return optHarga === lockedPrice;
                             });
-                            if (selectedOption) console.log('[Price Update] Matched by explicit lock');
+                            if (selectedOption) _log('[Price Update] Matched by explicit lock');
                         }
 
                         // PRIORITY 2: Exact string match (e.g. user typed suffix)
@@ -1710,7 +1733,7 @@ No. Kendaraan: ${noKendaraan}
                                         });
                                         if (matchingByHarga) {
                                             selectedOption = matchingByHarga;
-                                            console.log('[Price Update] Matched by existing price value');
+                                            _log('[Price Update] Matched by existing price value');
                                         }
                                     }
                                     
@@ -1730,7 +1753,7 @@ No. Kendaraan: ${noKendaraan}
                     
                     if (selectedOption) {
                         const hargaAttr = selectedOption.getAttribute('data-harga');
-                        console.log(`[Price Update] Selected price: ${hargaAttr}`);
+                        _log(`[Price Update] Selected price: ${hargaAttr}`);
                         
                         if (hargaAttr) {
                             // Always update attributes
@@ -1746,7 +1769,7 @@ No. Kendaraan: ${noKendaraan}
                             if (hasPriceSuffix || forceUpdate || explicitPrice) {
                                 inputElement.setAttribute('data-explicit-size', cleanValue);
                                 inputElement.setAttribute('data-explicit-price', hargaAttr);
-                                console.log(`[Price Update] Set explicit lock: Size=${cleanValue}, Price=${hargaAttr}`);
+                                _log(`[Price Update] Set explicit lock: Size=${cleanValue}, Price=${hargaAttr}`);
                             }
                             
                             // Also update harga-beli field with formatted value
@@ -1756,7 +1779,7 @@ No. Kendaraan: ${noKendaraan}
                                 // If so, do not overwrite it unless explicit permission given (which we don't really use for load)
                                 // But here we want to respect the flag we set in loadKacaDataFromLog
                                 if (hargaBeliInput.hasAttribute('data-manual-harga-beli')) {
-                                    console.log('[Price Update] Skipping harga-beli update due to manual protection flag');
+                                    _log('[Price Update] Skipping harga-beli update due to manual protection flag');
                                 } else {
                                     const hargaValues = hargaAttr.split(',').map(h => h.trim()).filter(h => h);
                                     if (hargaValues.length > 0) {
@@ -1767,7 +1790,7 @@ No. Kendaraan: ${noKendaraan}
                                             if (hargaBeliInput.value !== formattedPrice) {
                                                 const oldPrice = hargaBeliInput.value;
                                                 hargaBeliInput.value = formattedPrice;
-                                                console.log(`[Price Update] Updated harga-beli to: ${formattedPrice}`);
+                                                _log(`[Price Update] Updated harga-beli to: ${formattedPrice}`);
                                                 
                                                 // Log price change
                                                 if (typeof logPriceChange === 'function') {
@@ -2680,7 +2703,7 @@ No. Kendaraan: ${noKendaraan}
                 setTimeout(() => {
                     const kacaTableBody = document.getElementById('kacaTableBody');
                     if (kacaTableBody && kacaTableBody.children.length === 0) {
-                        console.log('Glass data not found, adding one default row...');
+                        _log('Glass data not found, adding one default row...');
                         addKacaRow();
                     }
                 }, 500);
@@ -2730,7 +2753,7 @@ No. Kendaraan: ${noKendaraan}
             });
             
             // Never auto-rearrange user positions; only log the state
-            console.log('No layout auto-adjustment applied; preserving user positions');
+            _log('No layout auto-adjustment applied; preserving user positions');
         }
 
         // Add event listeners for real-time column spacing updates
@@ -2858,15 +2881,15 @@ No. Kendaraan: ${noKendaraan}
             
             // If adjustment is needed, apply single page layout
             // Do not auto-adjust; trust user-defined positions
-            console.log('Validation step skipped auto-adjustments; preserving user positions');
+            _log('Validation step skipped auto-adjustments; preserving user positions');
         }
 
         function debugPositions() {
             const container = document.querySelector('.print-textarea-container');
             const textElements = container.querySelectorAll('.draggable-text-item');
             
-            console.log('=== Position Debug ===');
-            console.log('Container dimensions:', {
+            _log('=== Position Debug ===');
+            _log('Container dimensions:', {
                 width: container.offsetWidth,
                 height: container.offsetHeight,
                 scrollLeft: container.scrollLeft,
@@ -2878,7 +2901,7 @@ No. Kendaraan: ${noKendaraan}
                 const y = parseInt(element.style.top, 10) || 0;
                 const text = element.querySelector('.text-content')?.textContent || '';
                 
-                console.log(`Element ${index}:`, {
+                _log(`Element ${index}:`, {
                     text: text.substring(0, 30) + '...',
                     x: x,
                     y: y,
@@ -3020,7 +3043,7 @@ No. Kendaraan: ${noKendaraan}
                 }
                 
                 // Debug: Log the exact position being used
-                console.log(`Print element ${index}:`, {
+                _log(`Print element ${index}:`, {
                     text: item.text.substring(0, 30) + '...',
                     x: safeX,
                     y: safeY,
@@ -3174,7 +3197,7 @@ No. Kendaraan: ${noKendaraan}
 
             // Trigger Sync (Log Surat Jalan) when printing
             if (window.syncManager) {
-                console.log('🖨️ Print triggered sync...');
+                _log('🖨️ Print triggered sync...');
                 setTimeout(function() {
                     window.syncManager.syncAll().catch(function(err) { console.error('Auto-sync on print failed:', err); });
                 }, 500);
@@ -3285,7 +3308,7 @@ No. Kendaraan: ${noKendaraan}
         function savePositionsToStorage() {
             try {
                 storageManager.save('printTextPositions', savedPositions);
-                console.log('💾 Positions saved to storage:', savedPositions);
+                _log('💾 Positions saved to storage:', savedPositions);
             } catch (error) {
                 console.error('❌ Error saving positions:', error);
             }
@@ -3396,7 +3419,7 @@ No. Kendaraan: ${noKendaraan}
                     delete storageManager.fallbackData['printTextPositions'];
                 }
                 savedPositions = {};
-                console.log('Saved positions cleared');
+                _log('Saved positions cleared');
                 alert('Posisi tersimpan telah dihapus! Posisi akan kembali ke default saat modal dibuka kembali.');
             } catch (error) {
                 console.error('Error clearing saved positions:', error);
@@ -3796,7 +3819,7 @@ No. Kendaraan: ${noKendaraan}
             });
             
             if (needsAdjustment) {
-                console.log('Critical position issues detected - minimal adjustment needed');
+                _log('Critical position issues detected - minimal adjustment needed');
                 // Apply minimal adjustments only for out-of-bounds elements
                 textElements.forEach((element, index) => {
                     const pos = currentPositions[index];
@@ -3816,7 +3839,7 @@ No. Kendaraan: ${noKendaraan}
                     }
                 });
             } else {
-                console.log('User positions preserved - no adjustments needed');
+                _log('User positions preserved - no adjustments needed');
             }
         }
 
@@ -3832,12 +3855,12 @@ No. Kendaraan: ${noKendaraan}
                 element.style.fontSize = newFontSize + 'px';
             });
             
-            console.log(`📝 Font size changed to ${newFontSize}px`);
+            _log(`📝 Font size changed to ${newFontSize}px`);
             
             // Save font size preference to storage
             try {
                 storageManager.save('printFontSize', newFontSize.toString());
-                console.log('💾 Font size preference saved to storage');
+                _log('💾 Font size preference saved to storage');
             } catch (error) {
                 console.error('❌ Error saving font size preference:', error);
             }
@@ -3929,12 +3952,12 @@ No. Kendaraan: ${noKendaraan}
                 }
             });
             
-            console.log(`📝 Font weight changed to ${newFontWeight}`);
+            _log(`📝 Font weight changed to ${newFontWeight}`);
             
             // Save font weight preference to storage
             try {
                 storageManager.save('printFontWeight', newFontWeight.toString());
-                console.log('💾 Font weight preference saved to storage');
+                _log('💾 Font weight preference saved to storage');
             } catch (error) {
                 console.error('❌ Error saving font weight preference:', error);
             }
@@ -3972,7 +3995,7 @@ No. Kendaraan: ${noKendaraan}
                             }
                         }
                     });
-                    console.log(`📝 Loaded saved font weight: ${weight}`);
+                    _log(`📝 Loaded saved font weight: ${weight}`);
                 } else {
                     // initialize control with default and apply
                     const select = document.getElementById('fontWeightControl');
@@ -4154,7 +4177,7 @@ No. Kendaraan: ${noKendaraan}
                         spacingSelect.value = spacing;
                     }
                     
-                    console.log(`📊 Loaded saved column spacing: ${spacing}px`);
+                    _log(`📊 Loaded saved column spacing: ${spacing}px`);
                 }
             } catch (error) {
                 console.error('❌ Error loading column spacing preference:', error);
@@ -4185,7 +4208,7 @@ No. Kendaraan: ${noKendaraan}
             // Save to localStorage
             saveColumnSpacingToStorage();
             
-            console.log('📊 Column spacing updated:', columnSpacingConfig);
+            _log('📊 Column spacing updated:', columnSpacingConfig);
         }
 
         // Function to show visual feedback for column spacing updates
@@ -4243,7 +4266,7 @@ No. Kendaraan: ${noKendaraan}
                 // Save to localStorage
                 saveColumnSpacingToStorage();
                 
-                console.log(`📊 Applied ${presetName} preset:`, columnSpacingConfig);
+                _log(`📊 Applied ${presetName} preset:`, columnSpacingConfig);
             }
         }
 
@@ -4251,7 +4274,7 @@ No. Kendaraan: ${noKendaraan}
         function saveColumnSpacingToStorage() {
             try {
                 storageManager.save('columnSpacingConfig', columnSpacingConfig);
-                console.log('💾 Column spacing saved to storage');
+                _log('💾 Column spacing saved to storage');
             } catch (error) {
                 console.error('❌ Error saving column spacing:', error);
             }
@@ -4312,7 +4335,7 @@ No. Kendaraan: ${noKendaraan}
                 // Save to localStorage
                 saveColumnSpacingToStorage();
                 
-                console.log(`📊 Column spacing changed to ${newSpacing}px for all columns`);
+                _log(`📊 Column spacing changed to ${newSpacing}px for all columns`);
             }
         }
 
@@ -4336,7 +4359,7 @@ No. Kendaraan: ${noKendaraan}
 
         // Test function to debug TOTAL LBR issue
         function testKacaData() {
-            console.log('🧪 Testing Kaca Data Processing...');
+            _log('🧪 Testing Kaca Data Processing...');
             
             // Check if kaca table exists
             const kacaTable = document.getElementById('kacaTable');
@@ -4354,24 +4377,24 @@ No. Kendaraan: ${noKendaraan}
             
             // Check rows
             const rows = kacaTableBody.querySelectorAll('tr');
-            console.log(`📊 Found ${rows.length} rows in kaca table`);
+            _log(`📊 Found ${rows.length} rows in kaca table`);
             
             // Debug each row in detail
             rows.forEach((row, index) => {
-                console.log(`\n🔍 === ROW ${index + 1} DETAILED ANALYSIS ===`);
+                _log(`\n🔍 === ROW ${index + 1} DETAILED ANALYSIS ===`);
                 
                 // Check row structure
-                console.log('Row HTML:', row.outerHTML.substring(0, 300) + '...');
+                _log('Row HTML:', row.outerHTML.substring(0, 300) + '...');
                 
                 // Check all input elements in the row
                 const allInputs = row.querySelectorAll('input');
-                console.log(`Found ${allInputs.length} input elements in row ${index + 1}:`);
+                _log(`Found ${allInputs.length} input elements in row ${index + 1}:`);
                 
                 allInputs.forEach((input, inputIndex) => {
                     const className = input.className;
                     const value = input.value;
                     const placeholder = input.placeholder;
-                    console.log(`  Input ${inputIndex + 1}: class="${className}", value="${value}", placeholder="${placeholder}"`);
+                    _log(`  Input ${inputIndex + 1}: class="${className}", value="${value}", placeholder="${placeholder}"`);
                 });
                 
                 // Check specific selectors
@@ -4383,7 +4406,7 @@ No. Kendaraan: ${noKendaraan}
                 const lbr = row.querySelector('.lbr');
                 const totalLbr = row.querySelector('.total-lbr-input');
                 
-                console.log('Selector results:', {
+                _log('Selector results:', {
                     jenisKaca: jenisKaca ? `Found: "${jenisKaca.value}"` : 'NOT FOUND',
                     pwd: pwd ? `Found: "${pwd.value}"` : 'NOT FOUND',
                     noDo: noDo ? `Found: "${noDo.value}"` : 'NOT FOUND',
@@ -4395,12 +4418,12 @@ No. Kendaraan: ${noKendaraan}
                 
                 // Check if totalLbr has the right class
                 if (totalLbr) {
-                    console.log('✅ TOTAL LBR input found with classes:', totalLbr.className);
-                    console.log('TOTAL LBR value:', `"${totalLbr.value}"`);
-                    console.log('TOTAL LBR type:', totalLbr.type);
-                    console.log('TOTAL LBR readonly:', totalLbr.readOnly);
+                    _log('✅ TOTAL LBR input found with classes:', totalLbr.className);
+                    _log('TOTAL LBR value:', `"${totalLbr.value}"`);
+                    _log('TOTAL LBR type:', totalLbr.type);
+                    _log('TOTAL LBR readonly:', totalLbr.readOnly);
                 } else {
-                    console.log('❌ TOTAL LBR input NOT FOUND!');
+                    _log('❌ TOTAL LBR input NOT FOUND!');
                     
                     // Try alternative selectors
                     const alternativeSelectors = [
@@ -4413,20 +4436,20 @@ No. Kendaraan: ${noKendaraan}
                     alternativeSelectors.forEach(selector => {
                         const alt = row.querySelector(selector);
                         if (alt) {
-                            console.log(`🔍 Alternative selector "${selector}" found:`, alt);
+                            _log(`🔍 Alternative selector "${selector}" found:`, alt);
                         }
                     });
                 }
             });
             
             // Check column spacing configuration
-            console.log('\n📏 Column Spacing Config:', columnSpacingConfig);
+            _log('\n📏 Column Spacing Config:', columnSpacingConfig);
             
             // Test refreshPrintData function
-            console.log('\n🔄 Testing refreshPrintData function...');
+            _log('\n🔄 Testing refreshPrintData function...');
             try {
                 refreshPrintData();
-                console.log('✅ refreshPrintData executed successfully');
+                _log('✅ refreshPrintData executed successfully');
             } catch (error) {
                 console.error('❌ Error in refreshPrintData:', error);
             }
@@ -4437,7 +4460,7 @@ No. Kendaraan: ${noKendaraan}
 
         // Simple function to check TOTAL LBR data quickly
         function quickCheckTotalLBR() {
-            console.log('🚀 Quick Check TOTAL LBR Data...');
+            _log('🚀 Quick Check TOTAL LBR Data...');
             
             const kacaTableBody = document.getElementById('kacaTableBody');
             if (!kacaTableBody) {
@@ -4446,7 +4469,7 @@ No. Kendaraan: ${noKendaraan}
             }
             
             const rows = kacaTableBody.querySelectorAll('tr');
-            console.log(`📊 Found ${rows.length} rows`);
+            _log(`📊 Found ${rows.length} rows`);
             
             let totalSum = 0;
             
@@ -4454,26 +4477,26 @@ No. Kendaraan: ${noKendaraan}
                 const totalLbrInput = row.querySelector('.total-lbr-input');
                 const totalLbrValue = totalLbrInput ? totalLbrInput.value : 'NOT FOUND';
                 
-                console.log(`Row ${index + 1}: TOTAL LBR = "${totalLbrValue}"`);
+                _log(`Row ${index + 1}: TOTAL LBR = "${totalLbrValue}"`);
                 
                 if (totalLbrValue && totalLbrValue !== 'NOT FOUND') {
                     const match = totalLbrValue.match(/^(\d+(?:\.\d+)?)/);
                     if (match) {
                         const number = parseFloat(match[1]);
                         totalSum += number;
-                        console.log(`  ✅ Added ${number} to total`);
+                        _log(`  ✅ Added ${number} to total`);
                     }
                 }
             });
             
-            console.log(`\n🎯 GRAND TOTAL: ${totalSum} LBR`);
+            _log(`\n🎯 GRAND TOTAL: ${totalSum} LBR`);
             
             // Check if there are any TOTAL LBR inputs at all
             const allTotalInputs = document.querySelectorAll('.total-lbr-input');
-            console.log(`\n🔍 Found ${allTotalInputs.length} TOTAL LBR input elements in the entire table`);
+            _log(`\n🔍 Found ${allTotalInputs.length} TOTAL LBR input elements in the entire table`);
             
             allTotalInputs.forEach((input, index) => {
-                console.log(`  Input ${index + 1}: value="${input.value}", class="${input.className}", readonly=${input.readOnly}`);
+                _log(`  Input ${index + 1}: value="${input.value}", class="${input.className}", readonly=${input.readOnly}`);
             });
         }
 
@@ -4612,8 +4635,8 @@ No. Kendaraan: ${noKendaraan}
             const { cleanData: kacaData, totalLbrSum } = getCleanKacaData();
             
             // Debug: Log the final kacaData and totalLbrSum
-            console.log('Final kacaData (clean, no headers):', kacaData);
-            console.log('Final totalLbrSum:', totalLbrSum);
+            _log('Final kacaData (clean, no headers):', kacaData);
+            _log('Final totalLbrSum:', totalLbrSum);
             
             // Get footer data
             const cont = document.querySelector('.cont-input')?.value || '';
@@ -4659,11 +4682,11 @@ No. Kendaraan: ${noKendaraan}
                 if (savedPositions[index]) {
                     x = Math.round(savedPositions[index].x);
                     y = Math.round(savedPositions[index].y);
-                    console.log(`📍 Using saved position for element ${index}:`, { x, y, text: element.text.substring(0, 30) + '...' });
+                    _log(`📍 Using saved position for element ${index}:`, { x, y, text: element.text.substring(0, 30) + '...' });
                 } else {
                     x = element.x;
                     y = element.y;
-                    console.log(`🆕 Using default position for element ${index}:`, { x, y, text: element.text.substring(0, 30) + '...' });
+                    _log(`🆕 Using default position for element ${index}:`, { x, y, text: element.text.substring(0, 30) + '...' });
                 }
                 
                 textDiv.style.left = Math.round(x) + 'px';
@@ -4689,7 +4712,7 @@ No. Kendaraan: ${noKendaraan}
                 
                 // Debug: Log creation of kaca-data element (index 6)
                 if (index === 6) {
-                    console.log('🎯 Created kaca-data element (index 6):', {
+                    _log('🎯 Created kaca-data element (index 6):', {
                         text: element.text.substring(0, 100) + '...',
                         type: element.type,
                         x: x,
@@ -4753,7 +4776,7 @@ No. Kendaraan: ${noKendaraan}
                     }
 
                     // Debug: Log kaca-data element creation
-                    console.log('🎯 Created kaca-data element with enhanced styling:', {
+                    _log('🎯 Created kaca-data element with enhanced styling:', {
                         text: element.text.substring(0, 100) + '...',
                         maxWidth: textDiv.style.maxWidth,
                         backgroundColor: textDiv.style.backgroundColor,
@@ -4817,13 +4840,13 @@ No. Kendaraan: ${noKendaraan}
 
         // Test function to verify no headers in kaca data
         function testNoHeaders() {
-            console.log('🧪 Testing No Headers in Kaca Data...');
+            _log('🧪 Testing No Headers in Kaca Data...');
             
             const { cleanData: kacaData, totalLbrSum } = getCleanKacaData();
             
-            console.log('📊 Clean Kaca Data (should have NO headers):');
-            console.log('Data length:', kacaData.length);
-            console.log('Data content:', kacaData);
+            _log('📊 Clean Kaca Data (should have NO headers):');
+            _log('Data length:', kacaData.length);
+            _log('Data content:', kacaData);
             
             // Check if any line contains header text
             const lines = kacaData.split('\n');
@@ -4838,12 +4861,12 @@ No. Kendaraan: ${noKendaraan}
             );
             
             if (hasHeaders) {
-                console.log('❌ HEADERS FOUND! Kaca data still contains column titles');
+                _log('❌ HEADERS FOUND! Kaca data still contains column titles');
             } else {
-                console.log('✅ NO HEADERS FOUND! Kaca data is clean');
+                _log('✅ NO HEADERS FOUND! Kaca data is clean');
             }
             
-            console.log('🎯 Total LBR Sum:', totalLbrSum);
+            _log('🎯 Total LBR Sum:', totalLbrSum);
             
             return { kacaData, totalLbrSum, hasHeaders };
         }
@@ -4890,7 +4913,7 @@ No. Kendaraan: ${noKendaraan}
         function saveInputLogToStorage() {
             try {
                 storageManager.save('inputLogHistory', inputLogHistory);
-                console.log('💾 Input log saved to storage:', inputLogHistory.length, 'entries');
+                _log('💾 Input log saved to storage:', inputLogHistory.length, 'entries');
                 // Update suggestion datalists whenever log changes
                 updateKacaSuggestionsFromLogs();
                 updateSupirDanKendaraanSuggestions();
@@ -4963,7 +4986,7 @@ No. Kendaraan: ${noKendaraan}
                 inputLogHistory[editingLogEntry.index] = logEntry;
                 editingLogEntry = null; // Clear editing state
                 hideEditingIndicator(); // Hide editing indicator
-                console.log('✏️ Updated existing log entry, originalNomorSJForDeletion:', originalNomorSJForDeletion);
+                _log('✏️ Updated existing log entry, originalNomorSJForDeletion:', originalNomorSJForDeletion);
             } else {
                 // Clear originalNomorSJForDeletion if not editing
                 originalNomorSJForDeletion = null;
@@ -4996,7 +5019,7 @@ No. Kendaraan: ${noKendaraan}
             
             // Optional: toast could be added here if needed
             
-            console.log('💾 Saved input log entry:', logEntry);
+            _log('💾 Saved input log entry:', logEntry);
 
             // Sync with Stock History
             // This ensures stock transactions are updated immediately when log is saved or edited
@@ -5562,12 +5585,12 @@ No. Kendaraan: ${noKendaraan}
                 
                 if (hasData) {
                     loadKacaDataFromLog(entry.data.kacaData);
-                    console.log('🔄 Loading kaca data from log entry:', entry.data.kacaData);
+                    _log('🔄 Loading kaca data from log entry:', entry.data.kacaData);
                 } else {
-                    console.log('ℹ️ No kaca data found in log entry');
+                    _log('ℹ️ No kaca data found in log entry');
                 }
             } else {
-                console.log('ℹ️ No kacaData field in log entry');
+                _log('ℹ️ No kacaData field in log entry');
             }
             
             // Auto-resize textarea
@@ -5579,7 +5602,7 @@ No. Kendaraan: ${noKendaraan}
             // Show success message
             alert(`LOG dari: ${entry.data.namaToko}`);
             
-            console.log('🔄 Loaded input from log entry:', entry);
+            _log('🔄 Loaded input from log entry:', entry);
         }
 
         // Function to load kaca data from log
@@ -5663,7 +5686,7 @@ No. Kendaraan: ${noKendaraan}
                         ukuranEl.setAttribute('data-explicit-size', rowData.ukuran);
                         ukuranEl.setAttribute('data-explicit-price', hBeli);
                         ukuranEl.setAttribute('data-selected-harga', hBeli);
-                        console.log(`[Load Log] Locked size "${rowData.ukuran}" with price "${hBeli}"`);
+                        _log(`[Load Log] Locked size "${rowData.ukuran}" with price "${hBeli}"`);
                     }
                 }
                 
@@ -5770,7 +5793,7 @@ No. Kendaraan: ${noKendaraan}
                 }
             }, 150);
             
-            console.log('🔄 Loaded kaca data from log:', { rows, footer });
+            _log('🔄 Loaded kaca data from log:', { rows, footer });
         }
 
         // Export input log to file
@@ -5814,7 +5837,7 @@ No. Kendaraan: ${noKendaraan}
                             entry.logEntryId != null && logEntryIds.some(id => String(entry.logEntryId) === String(id))
                         );
                         
-                        console.log(`🗑️ Found ${stokEntriesToDelete.length} stok entries linked to ${logEntryIds.length} log entries`);
+                        _log(`🗑️ Found ${stokEntriesToDelete.length} stok entries linked to ${logEntryIds.length} log entries`);
                         
                         // Delete each stok entry from IndexedDB and arrays
                         for (const stokEntry of stokEntriesToDelete) {
@@ -5841,23 +5864,9 @@ No. Kendaraan: ${noKendaraan}
                         }
                         
                         // Update UI if functions are available
-                        if (typeof updateStokTable === 'function') {
-                            updateStokTable();
-                        }
-                        if (typeof updateTotalSisa === 'function') {
-                            updateTotalSisa();
-                        }
-                        if (typeof updateNamaTokoList === 'function') {
-                            updateNamaTokoList();
-                        }
-                        if (typeof updateJenisKacaList === 'function') {
-                            updateJenisKacaList();
-                        }
-                        if (typeof updateUkuranKacaList === 'function') {
-                            updateUkuranKacaList();
-                        }
-                        
-                        console.log(`✅ Deleted ${stokEntriesToDelete.length} related stok entries`);
+                        _markRender(1|2|4|8|16);
+
+                        _log(`✅ Deleted ${stokEntriesToDelete.length} related stok entries`);
                         
                         // Delete remote stock entries if SyncManager is available
                         if (window.syncManager) {
@@ -5869,7 +5878,7 @@ No. Kendaraan: ${noKendaraan}
                     }
                     
                     alert('Semua log input dan data terkait di riwayat stok telah dihapus!');
-                    console.log('🗑️ Cleared all input logs and related stok entries');
+                    _log('🗑️ Cleared all input logs and related stok entries');
 
                     // Clear remote logs as well
                     if (window.syncManager) {
@@ -5937,7 +5946,7 @@ No. Kendaraan: ${noKendaraan}
             if (editingLogEntry) {
                 editingLogEntry = null;
                 hideEditingIndicator();
-                console.log('❌ Editing cancelled');
+                _log('❌ Editing cancelled');
             }
         }
 
@@ -5995,19 +6004,8 @@ No. Kendaraan: ${noKendaraan}
                             }
                             
                             // Update UI
-                            if (typeof updateStokTable === 'function') {
-                                updateStokTable();
-                            }
-                            if (typeof updateTotalSisa === 'function') {
-                                updateTotalSisa();
-                            }
-                            if (typeof updateJenisKacaList === 'function') {
-                                updateJenisKacaList();
-                            }
-                            if (typeof updateUkuranKacaList === 'function') {
-                                updateUkuranKacaList();
-                            }
-                            
+                            _markRender(1|2|8|16);
+
                             // Delete related stok from backend
                             if (window.syncManager) {
                                 const stockIds = transactionsToDelete.map(e => e.id).filter(id => id != null);
@@ -6040,7 +6038,7 @@ No. Kendaraan: ${noKendaraan}
                         }
                         
                         await window.syncManager.backend.deleteLog(logEntryId);
-                        console.log(`Remote log ${logEntryId} deleted.`);
+                        _log(`Remote log ${logEntryId} deleted.`);
                     } catch (e) {
                         console.error(`Failed to delete remote log ${logEntryId}:`, e);
                         alert('Log dihapus dari lokal, tetapi GAGAL dihapus dari server: ' + e.message);
@@ -6418,7 +6416,7 @@ No. Kendaraan: ${noKendaraan}
             if (input) {
                 // Ensure multiple attribute is set
                 input.setAttribute('multiple', 'multiple');
-                console.log('Triggering restore file selection, multiple:', input.multiple);
+                _log('Triggering restore file selection, multiple:', input.multiple);
                 input.click();
             } else {
                 console.error('Restore file input not found');
@@ -6427,22 +6425,22 @@ No. Kendaraan: ${noKendaraan}
 
         // Handle restore from multiple backup files
         function handleRestoreLogFiles(event) {
-            console.log('=== RESTORE FUNCTION CALLED ===');
+            _log('=== RESTORE FUNCTION CALLED ===');
             const files = event.target.files;
-            console.log('Selected files:', files);
-            console.log('Number of files:', files ? files.length : 0);
+            _log('Selected files:', files);
+            _log('Number of files:', files ? files.length : 0);
             
             if (!files || files.length === 0) {
-                console.log('No files selected - exiting');
+                _log('No files selected - exiting');
                 alert('Tidak ada file yang dipilih');
                 return;
             }
             
             // Debug: log file names and details
-            console.log('=== FILE DETAILS ===');
+            _log('=== FILE DETAILS ===');
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
-                console.log(`File ${i + 1}:`, {
+                _log(`File ${i + 1}:`, {
                     name: file.name,
                     size: file.size,
                     type: file.type,
@@ -6451,7 +6449,7 @@ No. Kendaraan: ${noKendaraan}
             }
             
             // Show progress dialog
-            console.log('Creating progress dialog...');
+            _log('Creating progress dialog...');
             const progressDialog = showRestoreProgressDialog(files.length);
             
             processRestoreFiles(files, progressDialog)
@@ -6467,7 +6465,7 @@ No. Kendaraan: ${noKendaraan}
                 .finally(() => {
                     // Reset file input to allow selecting same files again
                     event.target.value = '';
-                    console.log('File input reset');
+                    _log('File input reset');
                 });
         }
 
@@ -6524,10 +6522,10 @@ No. Kendaraan: ${noKendaraan}
 
         // Process multiple restore files
         async function processRestoreFiles(files, progressDialog) {
-            console.log('=== PROCESSING RESTORE FILES ===');
+            _log('=== PROCESSING RESTORE FILES ===');
             const allLogs = new Map(); // Use Map to store logs by ID, keeping only the latest
             const fileArray = Array.from(files);
-            console.log('Processing', fileArray.length, 'files');
+            _log('Processing', fileArray.length, 'files');
             
             for (let i = 0; i < fileArray.length; i++) {
                 const file = fileArray[i];
@@ -6535,28 +6533,28 @@ No. Kendaraan: ${noKendaraan}
                 const progressBar = document.getElementById('restoreProgressBar');
                 const statusText = document.getElementById('restoreStatusText');
                 
-                console.log(`\n--- Processing file ${i + 1}/${fileArray.length}: ${file.name} ---`);
+                _log(`\n--- Processing file ${i + 1}/${fileArray.length}: ${file.name} ---`);
                 
                 if (progressText) progressText.textContent = `Membaca file ${i + 1} dari ${fileArray.length}: ${file.name}`;
                 if (statusText) statusText.textContent = `Memproses ${file.name}...`;
                 
                 try {
-                    console.log('Reading file content...');
+                    _log('Reading file content...');
                     const fileContent = await readFileAsText(file);
-                    console.log('File content length:', fileContent.length, 'characters');
-                    console.log('First 200 chars:', fileContent.substring(0, 200));
+                    _log('File content length:', fileContent.length, 'characters');
+                    _log('First 200 chars:', fileContent.substring(0, 200));
                     
                     let logs = [];
                     
                     // Determine file type and parse accordingly
                     if (file.name.toLowerCase().endsWith('.json')) {
-                        console.log('Parsing as JSON...');
+                        _log('Parsing as JSON...');
                         logs = parseJSONToLogs(fileContent);
-                        console.log(`✅ Parsed JSON file ${file.name}:`, logs.length, 'entries');
+                        _log(`✅ Parsed JSON file ${file.name}:`, logs.length, 'entries');
                     } else if (file.name.toLowerCase().endsWith('.csv')) {
-                        console.log('Parsing as CSV...');
+                        _log('Parsing as CSV...');
                         logs = parseCSVToLogs(fileContent);
-                        console.log(`✅ Parsed CSV file ${file.name}:`, logs.length, 'entries');
+                        _log(`✅ Parsed CSV file ${file.name}:`, logs.length, 'entries');
                     } else {
                         console.warn(`❌ Unsupported file type: ${file.name}`);
                         if (statusText) statusText.textContent = `Peringatan: File ${file.name} tidak didukung (hanya CSV/JSON)`;
@@ -6565,7 +6563,7 @@ No. Kendaraan: ${noKendaraan}
                     
                     // Debug: log sample entries
                     if (logs.length > 0) {
-                        console.log('Sample log entry:', logs[0]);
+                        _log('Sample log entry:', logs[0]);
                     }
                     
                     // Merge logs, keeping the latest version of each entry
@@ -6582,7 +6580,7 @@ No. Kendaraan: ${noKendaraan}
                         }
                     });
                     
-                    console.log(`Merged ${mergedCount} new/updated entries from ${file.name}`);
+                    _log(`Merged ${mergedCount} new/updated entries from ${file.name}`);
                     if (statusText) statusText.textContent = `File ${file.name} berhasil diproses (${logs.length} entri, ${mergedCount} baru/diupdate)`;
                     
                 } catch (err) {
@@ -6594,39 +6592,39 @@ No. Kendaraan: ${noKendaraan}
                 // Update progress bar
                 const progress = ((i + 1) / fileArray.length) * 100;
                 if (progressBar) progressBar.style.width = progress + '%';
-                console.log(`Progress: ${progress.toFixed(1)}%`);
+                _log(`Progress: ${progress.toFixed(1)}%`);
             }
             
             // Convert Map back to array and sort by timestamp (newest first)
-            console.log('\n=== FINALIZING RESTORE ===');
-            console.log('Total unique logs collected:', allLogs.size);
+            _log('\n=== FINALIZING RESTORE ===');
+            _log('Total unique logs collected:', allLogs.size);
             
             const mergedLogs = Array.from(allLogs.values()).sort((a, b) => 
                 new Date(b.timestamp) - new Date(a.timestamp)
             );
             
-            console.log('Final merged logs count:', mergedLogs.length);
-            console.log('Sample final log:', mergedLogs[0]);
+            _log('Final merged logs count:', mergedLogs.length);
+            _log('Sample final log:', mergedLogs[0]);
             
             const statusText = document.getElementById('restoreStatusText');
             if (statusText) statusText.textContent = `Menggabungkan ${mergedLogs.length} entri unik...`;
             
             // Replace current log history with merged logs
-            console.log('Replacing inputLogHistory...');
+            _log('Replacing inputLogHistory...');
             inputLogHistory = mergedLogs;
             
-            console.log('Saving to storage...');
+            _log('Saving to storage...');
             saveInputLogToStorage();
             
-            console.log('Rendering log display...');
+            _log('Rendering log display...');
             renderInputLog();
             
             // Process stok transactions from restored log entries
-            console.log('Processing stok transactions from restored logs...');
+            _log('Processing stok transactions from restored logs...');
             if (typeof processStokFromImportedLogs === 'function') {
                 try {
                     await processStokFromImportedLogs(mergedLogs);
-                    console.log('✅ Stok transactions processed from restored logs');
+                    _log('✅ Stok transactions processed from restored logs');
                 } catch (error) {
                     console.error('⚠️ Error processing stok from restored logs:', error);
                 }
@@ -6635,7 +6633,7 @@ No. Kendaraan: ${noKendaraan}
             }
             
             if (statusText) statusText.textContent = `Restore selesai! ${mergedLogs.length} entri log telah dipulihkan.`;
-            console.log('✅ Restore process completed successfully');
+            _log('✅ Restore process completed successfully');
         }
 
         // Read file as text (Promise-based)
@@ -6835,7 +6833,7 @@ No. Kendaraan: ${noKendaraan}
                     return log;
                 });
                 
-                console.log(`Parsed JSON: ${validLogs.length} valid entries from ${logs.length} total entries`);
+                _log(`Parsed JSON: ${validLogs.length} valid entries from ${logs.length} total entries`);
                 return validLogs;
                 
             } catch (err) {
@@ -7404,7 +7402,7 @@ No. Kendaraan: ${noKendaraan}
                     console.warn('Failed to save price audit log:', e);
                 }
                 
-                console.log('📝 Price Change Logged:', logEntry);
+                _log('📝 Price Change Logged:', logEntry);
             } catch (e) {
                 console.error('Error logging price change:', e);
             }
@@ -7565,28 +7563,28 @@ No. Kendaraan: ${noKendaraan}
 
         // Test function to verify auto-fill kaca data from log
         function testAutoFillKacaData() {
-            console.log('🧪 Testing Auto-Fill Kaca Data from Log...');
+            _log('🧪 Testing Auto-Fill Kaca Data from Log...');
             
             // Check if there are any log entries
             if (inputLogHistory.length === 0) {
-                console.log('❌ No log entries found. Please save a log first.');
+                _log('❌ No log entries found. Please save a log first.');
                 return;
             }
             
             // Get the first log entry
             const firstLog = inputLogHistory[0];
-            console.log('📊 First log entry:', firstLog);
+            _log('📊 First log entry:', firstLog);
             
             // Check if it has kaca data
             if (!firstLog.data.kacaData) {
-                console.log('❌ No kacaData found in log entry');
+                _log('❌ No kacaData found in log entry');
                 return;
             }
             
-            console.log('✅ Kaca data found in log entry:', firstLog.data.kacaData);
+            _log('✅ Kaca data found in log entry:', firstLog.data.kacaData);
             
             // Test the auto-fill function
-            console.log('🔄 Testing auto-fill function...');
+            _log('🔄 Testing auto-fill function...');
             
             // Clear current form first
             document.getElementById('namaToko').value = '';
@@ -7608,16 +7606,16 @@ No. Kendaraan: ${noKendaraan}
             if (contInput) contInput.value = '';
             if (sealInput) sealInput.value = '';
             
-            console.log('🧹 Form cleared for testing');
+            _log('🧹 Form cleared for testing');
             
             // Now test the auto-fill
             setTimeout(() => {
-                console.log('🔄 Calling loadInputFromLog(0)...');
+                _log('🔄 Calling loadInputFromLog(0)...');
                 loadInputFromLog(0);
                 
                 // Check results after a delay
                 setTimeout(() => {
-                    console.log('🔍 Checking auto-fill results...');
+                    _log('🔍 Checking auto-fill results...');
                     
                     // Check form fields
                     const namaToko = document.getElementById('namaToko').value;
@@ -7627,7 +7625,7 @@ No. Kendaraan: ${noKendaraan}
                     const supir = document.getElementById('supir').value;
                     const noKendaraan = document.getElementById('noKendaraan').value;
                     
-                    console.log('📝 Form fields filled:', {
+                    _log('📝 Form fields filled:', {
                         namaToko: namaToko || 'empty',
                         alamat: alamat || 'empty',
                         tanggal: tanggal || 'empty',
@@ -7638,10 +7636,10 @@ No. Kendaraan: ${noKendaraan}
                     
                     // Check kaca table
                     const kacaRows = document.querySelectorAll('#kacaTableBody tr');
-                    console.log('📊 Kaca table rows after auto-fill:', kacaRows.length);
+                    _log('📊 Kaca table rows after auto-fill:', kacaRows.length);
                     
                     if (kacaRows.length > 0) {
-                        console.log('✅ Kaca data auto-filled successfully');
+                        _log('✅ Kaca data auto-filled successfully');
                         
                         // Check first row data
                         const firstRow = kacaRows[0];
@@ -7653,7 +7651,7 @@ No. Kendaraan: ${noKendaraan}
                         const lbr = firstRow.querySelector('.lbr')?.value || '';
                         const totalLbr = firstRow.querySelector('.total-lbr-input')?.value || '';
                         
-                        console.log('🔍 First kaca row data:', {
+                        _log('🔍 First kaca row data:', {
                             jenisKaca: jenisKaca || 'empty',
                             pwd: pwd || 'empty',
                             noDo: noDo || 'empty',
@@ -7663,29 +7661,29 @@ No. Kendaraan: ${noKendaraan}
                             totalLbr: totalLbr || 'empty'
                         });
                     } else {
-                        console.log('❌ No kaca rows found after auto-fill');
+                        _log('❌ No kaca rows found after auto-fill');
                     }
                     
                     // Check footer data
                     const contValue = contInput ? contInput.value : '';
                     const sealValue = sealInput ? sealInput.value : '';
                     
-                    console.log('📋 Footer data after auto-fill:', {
+                    _log('📋 Footer data after auto-fill:', {
                         cont: contValue || 'empty',
                         seal: sealValue || 'empty'
                     });
                     
                     if (contValue || sealValue) {
-                        console.log('✅ Footer data auto-filled successfully');
+                        _log('✅ Footer data auto-filled successfully');
                     } else {
-                        console.log('ℹ️ No footer data to auto-fill');
+                        _log('ℹ️ No footer data to auto-fill');
                     }
                     
                 }, 1000);
                 
             }, 500);
             
-            console.log('🧪 Auto-fill test completed');
+            _log('🧪 Auto-fill test completed');
         }
 
         // Make test function globally available
@@ -7693,30 +7691,30 @@ No. Kendaraan: ${noKendaraan}
 
         // Debug function to check auto-fill issue
         function debugAutoFillIssue() {
-            console.log('🐛 Debugging Auto-Fill Issue...');
+            _log('🐛 Debugging Auto-Fill Issue...');
             
             // Check if there are log entries
-            console.log('📊 Number of log entries:', inputLogHistory.length);
+            _log('📊 Number of log entries:', inputLogHistory.length);
             
             if (inputLogHistory.length > 0) {
                 const firstLog = inputLogHistory[0];
-                console.log('📋 First log entry structure:', firstLog);
+                _log('📋 First log entry structure:', firstLog);
                 
                 // Check kaca data structure
                 if (firstLog.data.kacaData) {
-                    console.log('✅ kacaData exists in log entry');
-                    console.log('📊 kacaData type:', typeof firstLog.data.kacaData);
-                    console.log('📊 kacaData is array:', Array.isArray(firstLog.data.kacaData));
-                    console.log('📊 kacaData content:', firstLog.data.kacaData);
+                    _log('✅ kacaData exists in log entry');
+                    _log('📊 kacaData type:', typeof firstLog.data.kacaData);
+                    _log('📊 kacaData is array:', Array.isArray(firstLog.data.kacaData));
+                    _log('📊 kacaData content:', firstLog.data.kacaData);
                     
                     if (Array.isArray(firstLog.data.kacaData)) {
-                        console.log('📊 Array length:', firstLog.data.kacaData.length);
+                        _log('📊 Array length:', firstLog.data.kacaData.length);
                     } else if (firstLog.data.kacaData.rows) {
-                        console.log('📊 Rows length:', firstLog.data.kacaData.rows.length);
-                        console.log('📊 Footer data:', firstLog.data.kacaData.footer);
+                        _log('📊 Rows length:', firstLog.data.kacaData.rows.length);
+                        _log('📊 Footer data:', firstLog.data.kacaData.footer);
                     }
                 } else {
-                    console.log('❌ No kacaData in log entry');
+                    _log('❌ No kacaData in log entry');
                 }
                 
                 // Test the condition logic
@@ -7726,29 +7724,29 @@ No. Kendaraan: ${noKendaraan}
                         kacaData.length > 0 : 
                         (kacaData.rows && kacaData.rows.length > 0);
                     
-                    console.log('🔍 Condition check result:', hasData);
-                    console.log('🔍 Array.isArray(kacaData):', Array.isArray(kacaData));
+                    _log('🔍 Condition check result:', hasData);
+                    _log('🔍 Array.isArray(kacaData):', Array.isArray(kacaData));
                     
                     if (Array.isArray(kacaData)) {
-                        console.log('🔍 kacaData.length > 0:', kacaData.length > 0);
+                        _log('🔍 kacaData.length > 0:', kacaData.length > 0);
                     } else {
-                        console.log('🔍 kacaData.rows exists:', !!kacaData.rows);
-                        console.log('🔍 kacaData.rows.length > 0:', kacaData.rows && kacaData.rows.length > 0);
+                        _log('🔍 kacaData.rows exists:', !!kacaData.rows);
+                        _log('🔍 kacaData.rows.length > 0:', kacaData.rows && kacaData.rows.length > 0);
                     }
                 }
                 
             } else {
-                console.log('❌ No log entries found');
+                _log('❌ No log entries found');
             }
             
             // Check if loadKacaDataFromLog function exists
-            console.log('🔍 loadKacaDataFromLog function exists:', typeof loadKacaDataFromLog === 'function');
+            _log('🔍 loadKacaDataFromLog function exists:', typeof loadKacaDataFromLog === 'function');
             
             // Check if kaca table exists
             const tbody = document.getElementById('kacaTableBody');
-            console.log('🔍 kacaTableBody exists:', !!tbody);
+            _log('🔍 kacaTableBody exists:', !!tbody);
             
-            console.log('🐛 Debug completed');
+            _log('🐛 Debug completed');
         }
 
         // Make debug function globally available
@@ -7859,19 +7857,19 @@ No. Kendaraan: ${noKendaraan}
 
         // Test function to verify new log display
         function testNewLogDisplay() {
-            console.log('🧪 Testing New Log Display...');
+            _log('🧪 Testing New Log Display...');
             
             // Check if there are log entries
             if (inputLogHistory.length === 0) {
-                console.log('❌ No log entries found. Please save a log first.');
+                _log('❌ No log entries found. Please save a log first.');
                 return;
             }
             
-            console.log('✅ Log entries found:', inputLogHistory.length);
+            _log('✅ Log entries found:', inputLogHistory.length);
             
             // Check if new log structure exists
             const logEntries = document.querySelectorAll('.log-entry');
-            console.log('📊 Number of log entries in DOM:', logEntries.length);
+            _log('📊 Number of log entries in DOM:', logEntries.length);
             
             if (logEntries.length > 0) {
                 const firstLogEntry = logEntries[0];
@@ -7879,47 +7877,47 @@ No. Kendaraan: ${noKendaraan}
                 // Check for default view
                 const defaultView = firstLogEntry.querySelector('.log-content-default');
                 if (defaultView) {
-                    console.log('✅ Default view found');
-                    console.log('📊 Default view display:', defaultView.style.display);
+                    _log('✅ Default view found');
+                    _log('📊 Default view display:', defaultView.style.display);
                 } else {
-                    console.log('❌ Default view not found');
+                    _log('❌ Default view not found');
                 }
                 
                 // Check for detailed view
                 const detailedView = firstLogEntry.querySelector('.log-content-detailed');
                 if (detailedView) {
-                    console.log('✅ Detailed view found');
-                    console.log('📊 Detailed view display:', detailedView.style.display);
+                    _log('✅ Detailed view found');
+                    _log('📊 Detailed view display:', detailedView.style.display);
                 } else {
-                    console.log('❌ Detailed view not found');
+                    _log('❌ Detailed view not found');
                 }
                 
                 // Check for toggle icon
                 const toggleIcon = firstLogEntry.querySelector('.log-toggle-icon');
                 if (toggleIcon) {
-                    console.log('✅ Toggle icon found');
-                    console.log('📊 Toggle icon text:', toggleIcon.textContent);
+                    _log('✅ Toggle icon found');
+                    _log('📊 Toggle icon text:', toggleIcon.textContent);
                 } else {
-                    console.log('❌ Toggle icon not found');
+                    _log('❌ Toggle icon not found');
                 }
                 
                 // Check for load button in detailed view
                 const loadButton = firstLogEntry.querySelector('.btn-load-data');
                 if (loadButton) {
-                    console.log('✅ Load button found in detailed view');
+                    _log('✅ Load button found in detailed view');
                 } else {
-                    console.log('❌ Load button not found');
+                    _log('❌ Load button not found');
                 }
                 
                 // Test toggle functionality
-                console.log('🔄 Testing toggle functionality...');
+                _log('🔄 Testing toggle functionality...');
                 const logIndex = 0; // Test with first log entry
                 
                 // Get initial state
                 const initialDefaultDisplay = defaultView.style.display;
                 const initialDetailedDisplay = detailedView.style.display;
                 
-                console.log('📊 Initial state:', {
+                _log('📊 Initial state:', {
                     default: initialDefaultDisplay,
                     detailed: initialDetailedDisplay
                 });
@@ -7931,31 +7929,31 @@ No. Kendaraan: ${noKendaraan}
                     const afterToggleDefaultDisplay = defaultView.style.display;
                     const afterToggleDetailedDisplay = detailedView.style.display;
                     
-                    console.log('📊 After toggle state:', {
+                    _log('📊 After toggle state:', {
                         default: afterToggleDefaultDisplay,
                         detailed: afterToggleDetailedDisplay
                     });
                     
                     if (afterToggleDefaultDisplay !== initialDefaultDisplay || 
                         afterToggleDetailedDisplay !== initialDetailedDisplay) {
-                        console.log('✅ Toggle functionality working');
+                        _log('✅ Toggle functionality working');
                     } else {
-                        console.log('❌ Toggle functionality not working');
+                        _log('❌ Toggle functionality not working');
                     }
                     
                     // Toggle back
                     setTimeout(() => {
                         toggleLogDetails(logIndex);
-                        console.log('🔄 Toggled back to original state');
+                        _log('🔄 Toggled back to original state');
                     }, 500);
                     
                 }, 100);
                 
             } else {
-                console.log('❌ No log entries found in DOM');
+                _log('❌ No log entries found in DOM');
             }
             
-            console.log('🧪 New log display test completed');
+            _log('🧪 New log display test completed');
         }
 
         // Make test function globally available
@@ -7963,19 +7961,19 @@ No. Kendaraan: ${noKendaraan}
 
         // Test function to verify compact log display
         function testCompactLogDisplay() {
-            console.log('🧪 Testing Compact Log Display...');
+            _log('🧪 Testing Compact Log Display...');
             
             // Check if there are log entries
             if (inputLogHistory.length === 0) {
-                console.log('❌ No log entries found. Please save a log first.');
+                _log('❌ No log entries found. Please save a log first.');
                 return;
             }
             
-            console.log('✅ Log entries found:', inputLogHistory.length);
+            _log('✅ Log entries found:', inputLogHistory.length);
             
             // Check if new compact structure exists
             const logEntries = document.querySelectorAll('.log-entry');
-            console.log('📊 Number of log entries in DOM:', logEntries.length);
+            _log('📊 Number of log entries in DOM:', logEntries.length);
             
             if (logEntries.length > 0) {
                 const firstLogEntry = logEntries[0];
@@ -7983,17 +7981,17 @@ No. Kendaraan: ${noKendaraan}
                 // Check for compact line
                 const compactLine = firstLogEntry.querySelector('.log-compact-line');
                 if (compactLine) {
-                    console.log('✅ Compact line found');
+                    _log('✅ Compact line found');
                     
                     // Check compact items
                     const compactItems = compactLine.querySelectorAll('.log-compact-item');
-                    console.log('📊 Number of compact items:', compactItems.length);
+                    _log('📊 Number of compact items:', compactItems.length);
                     
                     compactItems.forEach((item, index) => {
                         const label = item.querySelector('.log-compact-label');
                         const value = item.querySelector('.log-compact-value');
                         
-                        console.log(`📋 Compact item ${index + 1}:`, {
+                        _log(`📋 Compact item ${index + 1}:`, {
                             label: label ? label.textContent : 'not found',
                             value: value ? value.textContent : 'not found'
                         });
@@ -8001,44 +7999,44 @@ No. Kendaraan: ${noKendaraan}
                     
                     // Check separators
                     const separators = compactLine.querySelectorAll('.log-compact-separator');
-                    console.log('📊 Number of separators:', separators.length);
+                    _log('📊 Number of separators:', separators.length);
                     
                 } else {
-                    console.log('❌ Compact line not found');
+                    _log('❌ Compact line not found');
                 }
                 
                 // Check for default view
                 const defaultView = firstLogEntry.querySelector('.log-content-default');
                 if (defaultView) {
-                    console.log('✅ Default view found');
-                    console.log('📊 Default view display:', defaultView.style.display);
+                    _log('✅ Default view found');
+                    _log('📊 Default view display:', defaultView.style.display);
                 } else {
-                    console.log('❌ Default view not found');
+                    _log('❌ Default view not found');
                 }
                 
                 // Check for detailed view
                 const detailedView = firstLogEntry.querySelector('.log-content-detailed');
                 if (detailedView) {
-                    console.log('✅ Detailed view found');
-                    console.log('📊 Detailed view display:', detailedView.style.display);
+                    _log('✅ Detailed view found');
+                    _log('📊 Detailed view display:', detailedView.style.display);
                 } else {
-                    console.log('❌ Detailed view not found');
+                    _log('❌ Detailed view not found');
                 }
                 
                 // Test compact layout
-                console.log('🔄 Testing compact layout...');
+                _log('🔄 Testing compact layout...');
                 
                 // Check if layout is horizontal
                 const computedStyle = window.getComputedStyle(compactLine);
                 const flexDirection = computedStyle.flexDirection;
-                console.log('📊 Flex direction:', flexDirection);
+                _log('📊 Flex direction:', flexDirection);
                 
                 if (flexDirection === 'row') {
-                    console.log('✅ Compact layout is horizontal (desktop)');
+                    _log('✅ Compact layout is horizontal (desktop)');
                 } else if (flexDirection === 'column') {
-                    console.log('✅ Compact layout is vertical (mobile)');
+                    _log('✅ Compact layout is vertical (mobile)');
                 } else {
-                    console.log('❌ Unexpected flex direction:', flexDirection);
+                    _log('❌ Unexpected flex direction:', flexDirection);
                 }
                 
                 // Test text overflow
@@ -8049,7 +8047,7 @@ No. Kendaraan: ${noKendaraan}
                     const overflow = computedStyle.overflow;
                     const whiteSpace = computedStyle.whiteSpace;
                     
-                    console.log(`📊 Text overflow for value ${index + 1}:`, {
+                    _log(`📊 Text overflow for value ${index + 1}:`, {
                         textOverflow: textOverflow,
                         overflow: overflow,
                         whiteSpace: whiteSpace
@@ -8057,10 +8055,10 @@ No. Kendaraan: ${noKendaraan}
                 });
                 
             } else {
-                console.log('❌ No log entries found in DOM');
+                _log('❌ No log entries found in DOM');
             }
             
-            console.log('🧪 Compact log display test completed');
+            _log('🧪 Compact log display test completed');
         }
 
         // Make test function globally available
@@ -8068,7 +8066,7 @@ No. Kendaraan: ${noKendaraan}
 
         // Test function to verify container height matching
         function testContainerHeightMatching() {
-            console.log('🧪 Testing Container Height Matching...');
+            _log('🧪 Testing Container Height Matching...');
             
             // Get container elements
             const leftSection = document.querySelector('.left-section');
@@ -8076,18 +8074,18 @@ No. Kendaraan: ${noKendaraan}
             const mainLayout = document.querySelector('.main-layout');
             
             if (!leftSection || !rightSection || !mainLayout) {
-                console.log('❌ Container elements not found');
+                _log('❌ Container elements not found');
                 return;
             }
             
-            console.log('✅ Container elements found');
+            _log('✅ Container elements found');
             
             // Get computed styles
             const leftHeight = leftSection.offsetHeight;
             const rightHeight = rightSection.offsetHeight;
             const mainLayoutHeight = mainLayout.offsetHeight;
             
-            console.log('📊 Container heights:', {
+            _log('📊 Container heights:', {
                 leftSection: leftHeight + 'px',
                 rightSection: rightHeight + 'px',
                 mainLayout: mainLayoutHeight + 'px'
@@ -8098,11 +8096,11 @@ No. Kendaraan: ${noKendaraan}
             const tolerance = 10; // 10px tolerance for minor differences
             
             if (heightDifference <= tolerance) {
-                console.log('✅ Container heights match (within tolerance)');
-                console.log('📊 Height difference:', heightDifference + 'px');
+                _log('✅ Container heights match (within tolerance)');
+                _log('📊 Height difference:', heightDifference + 'px');
             } else {
-                console.log('❌ Container heights do not match');
-                console.log('📊 Height difference:', heightDifference + 'px');
+                _log('❌ Container heights do not match');
+                _log('📊 Height difference:', heightDifference + 'px');
             }
             
             // Check flex properties
@@ -8110,7 +8108,7 @@ No. Kendaraan: ${noKendaraan}
             const rightComputedStyle = window.getComputedStyle(rightSection);
             const mainLayoutComputedStyle = window.getComputedStyle(mainLayout);
             
-            console.log('📊 Flex properties:', {
+            _log('📊 Flex properties:', {
                 mainLayoutAlignItems: mainLayoutComputedStyle.alignItems,
                 leftSectionFlex: leftComputedStyle.flex,
                 rightSectionFlex: rightComputedStyle.flex,
@@ -8120,16 +8118,16 @@ No. Kendaraan: ${noKendaraan}
             
             // Check if right section has flex column
             if (rightComputedStyle.display === 'flex' && rightComputedStyle.flexDirection === 'column') {
-                console.log('✅ Right section has flex column layout');
+                _log('✅ Right section has flex column layout');
             } else {
-                console.log('❌ Right section does not have flex column layout');
+                _log('❌ Right section does not have flex column layout');
             }
             
             // Check log container properties
             const logContainer = document.querySelector('.log-container');
             if (logContainer) {
                 const logContainerComputedStyle = window.getComputedStyle(logContainer);
-                console.log('📊 Log container properties:', {
+                _log('📊 Log container properties:', {
                     flex: logContainerComputedStyle.flex,
                     minHeight: logContainerComputedStyle.minHeight,
                     overflowY: logContainerComputedStyle.overflowY
@@ -8140,7 +8138,7 @@ No. Kendaraan: ${noKendaraan}
             const logActions = document.querySelector('.log-actions');
             if (logActions) {
                 const logActionsComputedStyle = window.getComputedStyle(logActions);
-                console.log('📊 Log actions properties:', {
+                _log('📊 Log actions properties:', {
                     marginTop: logActionsComputedStyle.marginTop,
                     flexShrink: logActionsComputedStyle.flexShrink
                 });
@@ -8148,15 +8146,15 @@ No. Kendaraan: ${noKendaraan}
             
             // Test responsive behavior
             const isMobile = window.innerWidth <= 768;
-            console.log('📱 Device type:', isMobile ? 'Mobile' : 'Desktop');
+            _log('📱 Device type:', isMobile ? 'Mobile' : 'Desktop');
             
             if (isMobile) {
-                console.log('📱 Mobile layout: Containers should stack vertically');
+                _log('📱 Mobile layout: Containers should stack vertically');
             } else {
-                console.log('🖥️ Desktop layout: Containers should have matching heights');
+                _log('🖥️ Desktop layout: Containers should have matching heights');
             }
             
-            console.log('🧪 Container height matching test completed');
+            _log('🧪 Container height matching test completed');
         }
 
             // Make test function globally available
@@ -8303,7 +8301,7 @@ No. Kendaraan: ${noKendaraan}
                             console.warn('localStorage save fallback failed', e);
                         }
                         idbSet('inputLogHistory', inputLogHistory);
-                        console.log('💾 Input log mirrored to IndexedDB:', inputLogHistory.length, 'entries');
+                        _log('💾 Input log mirrored to IndexedDB:', inputLogHistory.length, 'entries');
                     };
 
                     window.addEventListener('storage', function(e) {
@@ -8586,7 +8584,7 @@ No. Kendaraan: ${noKendaraan}
           request.onsuccess = () => {
             stokData = request.result || [];
             window.stokData = stokData; 
-            console.log('Data loaded:', stokData.length, 'entries');
+            _log('Data loaded:', stokData.length, 'entries');
             if (typeof updateKacaSuggestionsFromLogs === 'function') updateKacaSuggestionsFromLogs();
             resolve(stokData);
           };
@@ -8603,76 +8601,79 @@ No. Kendaraan: ${noKendaraan}
       }
     }
 
-    // Save data to IndexedDB (saves all data in stokData array)
+    // === Daftar ID yang berubah (dirty) untuk saveData incremental ===
+    const _dirtyIds = new Set();
+    function _markDirty(id) { if (id !== undefined && id !== null) _dirtyIds.add(id); }
+    function _markAllDirty() { _dirtyIds.clear(); _dirtyIds._full = true; }
+
+    // Save data ke IndexedDB — incremental: hanya tulis ulang item yang dirty
     async function saveData() {
       try {
         if (!db) {
           await initDB();
         }
 
+        // Saat full rewrite diperlukan (_full = true), rewrite semua
+        if (_dirtyIds._full) {
+          _dirtyIds.clear();
+          delete _dirtyIds._full;
+          return await _fullSave();
+        }
+
+        // Jika tidak ada yang dirty, skip
+        if (_dirtyIds.size === 0) return;
+
+        const ids = [..._dirtyIds];
+        _dirtyIds.clear();
+
         return new Promise((resolve, reject) => {
           const transaction = db.transaction([STORE_NAME], 'readwrite');
           const store = transaction.objectStore(STORE_NAME);
-          
-          // Clear existing data first
-          const clearRequest = store.clear();
-          
-          clearRequest.onsuccess = () => {
-            // Add all data
-            if (stokData.length === 0) {
-              showStatus("Data berhasil disimpan (0 baris)", "saving");
-              setTimeout(() => document.getElementById('statusBar').style.display = 'none', 2000);
-              resolve();
-              return;
+          let completed = 0;
+          let hasError = false;
+          const total = ids.length;
+
+          ids.forEach((id) => {
+            const item = stokData.find(e => String(e.id) === String(id));
+            if (!item) {
+              // Item dihapus — hapus dari store juga
+              const req = store.delete(String(id));
+              req.onsuccess = () => { completed++; if (completed === total && !hasError) resolve(); };
+              req.onerror = () => { if (!hasError) { hasError = true; reject(req.error); } };
+            } else {
+              const req = store.put(item);
+              req.onsuccess = () => { completed++; if (completed === total && !hasError) resolve(); };
+              req.onerror = () => { if (!hasError) { hasError = true; reject(req.error); } };
             }
+          });
 
-            let completed = 0;
-            let hasError = false;
-
-            stokData.forEach((item) => {
-              const request = store.add(item);
-              
-              request.onsuccess = () => {
-                completed++;
-                if (completed === stokData.length && !hasError) {
-                  showStatus("Data berhasil disimpan (" + stokData.length + " baris)", "saving");
-                  setTimeout(() => document.getElementById('statusBar').style.display = 'none', 2000);
-                  resolve();
-                }
-              };
-
-              request.onerror = () => {
-                if (!hasError) {
-                  hasError = true;
-                  const errorMsg = "Gagal menyimpan data: " + request.error.message;
-                  showStatus(errorMsg, "error");
-                  console.error("Error saving data:", request.error);
-                  setTimeout(() => document.getElementById('statusBar').style.display = 'none', 5000);
-                  reject(request.error);
-                }
-              };
-            });
-          };
-
-          clearRequest.onerror = () => {
-            const errorMsg = "Gagal menghapus data lama: " + clearRequest.error.message;
-            showStatus(errorMsg, "error");
-            console.error("Error clearing store:", clearRequest.error);
-            setTimeout(() => document.getElementById('statusBar').style.display = 'none', 5000);
-            reject(clearRequest.error);
-          };
+          transaction.oncomplete = () => { if (!hasError) resolve(); };
+          transaction.onerror = () => { if (!hasError) { hasError = true; reject(transaction.error); } };
         });
       } catch (error) {
-        let errorMessage = "Gagal menyimpan data: ";
-        if (error.name === 'QuotaExceededError' || error.code === 22) {
-          errorMessage += "Penyimpanan penuh. IndexedDB mendukung penyimpanan besar, tetapi browser mungkin membatasi. Silakan coba lagi atau export data ke Excel.";
-        } else {
-          errorMessage += error.message;
-        }
-        showStatus(errorMessage, "error");
         console.error("Error in saveData:", error);
-        setTimeout(() => document.getElementById('statusBar').style.display = 'none', 5000);
+        // Fallback: full rewrite
+        try { await _fullSave(); } catch (_) {}
       }
+    }
+
+    // Full rewrite (fallback atau saat _markAllDirty dipanggil)
+    async function _fullSave() {
+      return new Promise((resolve, reject) => {
+        const transaction = db.transaction([STORE_NAME], 'readwrite');
+        const store = transaction.objectStore(STORE_NAME);
+        const clear = store.clear();
+        clear.onsuccess = () => {
+          if (!stokData || stokData.length === 0) { resolve(); return; }
+          let done = 0, err = false;
+          stokData.forEach((item) => {
+            const r = store.add(item);
+            r.onsuccess = () => { done++; if (done === stokData.length && !err) resolve(); };
+            r.onerror = () => { if (!err) { err = true; reject(r.error); } };
+          });
+        };
+        clear.onerror = () => reject(clear.error);
+      });
     }
 
     // Add single entry to IndexedDB
@@ -9500,18 +9501,18 @@ No. Kendaraan: ${noKendaraan}
         // No return here, proceed to filter the newly rendered rows with the new searchTerm
       }
       if (!tableBody) {
-        console.log('❌ stokTable not found');
+        _log('❌ stokTable not found');
         return;
       }
       
       const tbody = tableBody.getElementsByTagName('tbody')[0];
       if (!tbody) {
-        console.log('❌ tbody not found');
+        _log('❌ tbody not found');
         return;
       }
       
       const rows = Array.from(tbody.querySelectorAll('tr'));
-      console.log(`🔍 performSearch called with term: "${searchTerm}", found ${rows.length} rows`);
+      _log(`🔍 performSearch called with term: "${searchTerm}", found ${rows.length} rows`);
       
       // Show/hide clear button
       if (searchTerm.length > 0) {
@@ -9522,7 +9523,7 @@ No. Kendaraan: ${noKendaraan}
       
       // Check for sorting patterns: "1-2" (ascending) or "2-1" (descending)
       if (searchTerm === '1-2' || searchTerm === '2-1') {
-        console.log(`📊 Sorting by nota: ${searchTerm === '1-2' ? 'ascending' : 'descending'}`);
+        _log(`📊 Sorting by nota: ${searchTerm === '1-2' ? 'ascending' : 'descending'}`);
         // Sort by nota number
         const sortAscending = searchTerm === '1-2';
         
@@ -9551,7 +9552,7 @@ No. Kendaraan: ${noKendaraan}
           return { row, notaText, notaNumber };
         });
         
-        console.log('📋 Nota data:', rowsWithNota.map(r => ({ nota: r.notaText, number: r.notaNumber })));
+        _log('📋 Nota data:', rowsWithNota.map(r => ({ nota: r.notaText, number: r.notaNumber })));
         
         // Sort by nota number
         rowsWithNota.sort((a, b) => {
@@ -9585,7 +9586,7 @@ No. Kendaraan: ${noKendaraan}
           tbody.appendChild(item.row);
         });
         
-        console.log(`✅ Sorted ${rowsWithNota.length} rows by nota (${sortAscending ? 'ascending' : 'descending'})`);
+        _log(`✅ Sorted ${rowsWithNota.length} rows by nota (${sortAscending ? 'ascending' : 'descending'})`);
         return;
       }
       
@@ -9717,9 +9718,9 @@ No. Kendaraan: ${noKendaraan}
           if (index === -1 && typeof window !== 'undefined' && typeof window.stokData !== 'undefined' && Array.isArray(window.stokData)) {
             const windowIndex = window.stokData.findIndex(item => String(item.id) === normalizedId);
             if (windowIndex !== -1) {
-              // Sync local stokData with window.stokData
-              stokData = [...window.stokData];
-              index = stokData.findIndex(item => String(item.id) === normalizedId);
+              // Sync local stokData with window.stokData (pakai reference)
+              stokData = window.stokData;
+              index = windowIndex;
             }
           }
           
@@ -9758,7 +9759,7 @@ No. Kendaraan: ${noKendaraan}
               );
 
               if (relatedPenjualan.length > 0) {
-                console.log(`🔄 Update ${relatedPenjualan.length} penjualan: ${oldTebal}→${tebal}, ${oldUkuran}→${ukuran}`);
+                _log(`🔄 Update ${relatedPenjualan.length} penjualan: ${oldTebal}→${tebal}, ${oldUkuran}→${ukuran}`);
                 for (const penjualan of relatedPenjualan) {
                   penjualan.tebal = tebal;
                   penjualan.ukuran = ukuran;
@@ -9856,7 +9857,8 @@ No. Kendaraan: ${noKendaraan}
             }
             
             await updateEntry(updatedEntry);
-            // Atomic save — seluruh data disimpan agar IndexedDB konsisten
+            // Incremental save — tandai ID yang berubah saja
+            _markDirty(updatedEntry.id);
             if (typeof saveData === 'function') {
               saveData().catch(function() {});
             }
@@ -9865,19 +9867,10 @@ No. Kendaraan: ${noKendaraan}
               const statusBar = document.getElementById('statusBar');
               if (statusBar) statusBar.style.display = 'none';
             }, 2000);
-            
-            // Update tabel dan dropdown lists without page refresh
-            updateStokTable(true);
-            updateTotalSisa();
-            updateNamaTokoList();
-            updateJenisKacaList();
-            updateUkuranKacaList();
-            
-            // Update dropdown surat jalan
-            if (typeof updateKacaSuggestionsFromLogs === 'function') {
-              updateKacaSuggestionsFromLogs();
-            }
-            
+
+            // Batch render — semua update di-flush sekali per frame
+            _markRender(1|2|4|8|16|32);
+
             // Reset form
             cancelEdit();
             return;
@@ -9903,9 +9896,10 @@ No. Kendaraan: ${noKendaraan}
           if (typeof window.stokData !== 'undefined' && Array.isArray(window.stokData)) {
             window.stokData.unshift(newEntry);
           } else {
-            window.stokData = [...stokData];
+            window.stokData = stokData;
           }
           await addEntry(newEntry);
+          _markDirty(newEntry.id);
           if (typeof saveData === 'function') {
             saveData().catch(function() {});
           }
@@ -9930,7 +9924,10 @@ No. Kendaraan: ${noKendaraan}
         toggleJumlahMasukKeluar();
         updateHargaBeliPlaceholder();
         updateHargaJualPlaceholder();
-        
+
+        // Batch render — semua update dijadwalkan sekali per frame
+        _markRender(1|2|4|8|16|32);
+
         // Auto refresh non-functional (too fast, destroys UX) - removed
         // All table updates already done synchronously above
       } catch (error) {
@@ -9948,43 +9945,50 @@ No. Kendaraan: ${noKendaraan}
     // Rebuild stock cache dari awal (dipanggil saat data berubah)
     function rebuildStockCache(dataArray) {
       const cache = new Map();
-      const sourceData = dataArray || (typeof window.stokData !== 'undefined' && Array.isArray(window.stokData) ? window.stokData : stokData);
+      const sourceData = dataArray || (window.stokData && Array.isArray(window.stokData) ? window.stokData : stokData);
       if (!Array.isArray(sourceData) || sourceData.length === 0) {
         window._stockCache = cache;
         window._stockCacheDirty = false;
         return;
       }
 
-      // Group all entries by their group key (tebal+ukuran+maybe harga)
+      // Single pass: group + sort key generation
       const groups = {};
-      sourceData.forEach(entry => {
-        if (!entry.tebal || !entry.ukuran) return;
+      const parseDate = window._parseDateCached || ((d) => new Date(d.split('/').reverse().join('/')));
+
+      for (let i = 0; i < sourceData.length; i++) {
+        const entry = sourceData[i];
+        if (!entry.tebal || !entry.ukuran) continue;
         const normTebal = normalizeSpec(entry.tebal);
         const normUkuran = normalizeSpec(entry.ukuran);
-        const hargaKey = (isPriceGroupingEnabled && entry.harga !== undefined && entry.harga > 0) ? entry.harga : 'noharga';
+        const hargaKey = (isPriceGroupingEnabled && entry.harga > 0) ? entry.harga : 'noharga';
         const key = normTebal + '||' + normUkuran + '||' + (isPriceGroupingEnabled ? hargaKey : 'all');
 
         if (!groups[key]) groups[key] = [];
-        groups[key].push(entry);
-      });
+        // Precompute sort key: [timestamp, id] untuk Schwartzian
+        groups[key].push({
+          entry,
+          sortKey: parseDate(entry.tanggal).getTime(),
+          id: String(entry.id ?? '')
+        });
+      }
 
-      // Sort each group by date/ID and compute running stock
-      const parseDate = window._parseDateCached || ((d) => new Date(d.split('/').reverse().join('/')));
-      Object.keys(groups).forEach(key => {
-        const group = groups[key];
+      // Process each group: sort by precomputed key, then running stock
+      const keys = Object.keys(groups);
+      for (let g = 0; g < keys.length; g++) {
+        const group = groups[keys[g]];
         group.sort((a, b) => {
-          const dateA = parseDate(a.tanggal);
-          const dateB = parseDate(b.tanggal);
-          if (dateA - dateB !== 0) return dateA - dateB;
-          return String(a.id ?? '').localeCompare(String(b.id ?? ''));
+          if (a.sortKey !== b.sortKey) return a.sortKey - b.sortKey;
+          return a.id.localeCompare(b.id);
         });
 
         let runningStock = 0;
-        group.forEach(entry => {
-          runningStock += (entry.masuk || 0) - (entry.keluar || 0);
-          cache.set(entry.id, runningStock);
-        });
-      });
+        for (let i = 0; i < group.length; i++) {
+          const e = group[i].entry;
+          runningStock += (e.masuk || 0) - (e.keluar || 0);
+          cache.set(e.id, runningStock);
+        }
+      }
 
       window._stockCache = cache;
       window._stockCacheDirty = false;
@@ -10020,6 +10024,9 @@ No. Kendaraan: ${noKendaraan}
       const normTebal = normalizeSpec(entry.tebal);
       const normUkuran = normalizeSpec(entry.ukuran);
 
+      // Early exit jika tebal/ukuran kosong
+      if (!normTebal || !normUkuran) return 0;
+
       const sameTypeEntries = sourceData.filter(e => {
         const matchBase = normalizeSpec(e.tebal) === normTebal &&
                          normalizeSpec(e.ukuran) === normUkuran;
@@ -10034,23 +10041,15 @@ No. Kendaraan: ${noKendaraan}
         return true;
       });
 
-      sameTypeEntries.sort((a, b) => {
-        const parseDate = window._parseDateCached || ((d) => new Date(d.split('/').reverse().join('/')));
-        const dateA = parseDate(a.tanggal);
-        const dateB = parseDate(b.tanggal);
-        if (dateA - dateB !== 0) return dateA - dateB;
-        const idA = String(a.id ?? '');
-        const idB = String(b.id ?? '');
-        return idA.localeCompare(idB);
-      });
-
-      const entryIndex = sameTypeEntries.findIndex(e => e.id === entry.id);
-      const entriesUpToThis = sameTypeEntries.slice(0, entryIndex + 1);
-
-      const totalMasuk = entriesUpToThis.reduce((sum, e) => sum + (e.masuk || 0), 0);
-      const totalKeluar = entriesUpToThis.reduce((sum, e) => sum + (e.keluar || 0), 0);
-
-      return totalMasuk - totalKeluar;
+      // Running stock: iterasi sekali, bukan filter + 2 reduce
+      let runningStock = 0;
+      const entryIdNorm = String(entry.id);
+      for (let i = 0; i < sameTypeEntries.length; i++) {
+        const e = sameTypeEntries[i];
+        runningStock += (e.masuk || 0) - (e.keluar || 0);
+        if (String(e.id) === entryIdNorm) break;
+      }
+      return runningStock;
     }
 
     // Helper: parse number supporting thousand separators (., ,)
@@ -10080,10 +10079,9 @@ No. Kendaraan: ${noKendaraan}
       if (!matchEntry) return;
       const normalizedId = matchEntry.id;
       
-      // Get current sorted data source based on activeItemFilter
-      let dataSource = (typeof window !== 'undefined' && typeof window.stokData !== 'undefined' && Array.isArray(window.stokData)) 
-        ? [...window.stokData] 
-        : [...stokData];
+      // Get current sorted data source based on activeItemFilter (slice untuk copy agar bisa di-sort)
+      const src = (typeof window !== 'undefined' && Array.isArray(window.stokData)) ? window.stokData : stokData;
+      let dataSource = src.slice();
 
       if (activeItemFilter) {
         const normFilterTebal = normalizeSpec(activeItemFilter.tebal);
@@ -10183,13 +10181,13 @@ No. Kendaraan: ${noKendaraan}
             await addFunc(targetItem);
           }
 
-          // Sync global arrays
-          if (typeof window !== 'undefined' && typeof window.stokData !== 'undefined') {
+          // Sync global arrays — avoid spread copy jika already same reference
+          if (typeof window !== 'undefined' && Array.isArray(window.stokData)) {
             const idx1 = window.stokData.findIndex(e => e.id === oldIdCurrent);
             if (idx1 !== -1) window.stokData[idx1] = currentItem;
             const idx2 = window.stokData.findIndex(e => e.id === oldIdTarget);
             if (idx2 !== -1) window.stokData[idx2] = targetItem;
-            stokData = [...window.stokData];
+            if (stokData !== window.stokData) stokData = window.stokData;
           }
 
           updateStokTable(true);
@@ -10297,13 +10295,14 @@ No. Kendaraan: ${noKendaraan}
       tableBody.innerHTML = ""; // Clear the table body
 
       // Use window.stokData if available (for sync with surat jalan), otherwise use local stokData
-      let dataSource = (typeof window !== 'undefined' && typeof window.stokData !== 'undefined' && Array.isArray(window.stokData))
+      // Hindari spread operator penuh — gunakan reference langsung + filter
+      const dataSource = (typeof window !== 'undefined' && window.stokData && Array.isArray(window.stokData))
         ? window.stokData
         : stokData;
 
-      // Sync local stokData with window.stokData if available
-      if (typeof window !== 'undefined' && typeof window.stokData !== 'undefined' && Array.isArray(window.stokData)) {
-        stokData = [...window.stokData];
+      // Sync hanya jika referensi berbeda
+      if (dataSource !== stokData) {
+        stokData = dataSource;
       }
 
       // Apply active item filter if set
@@ -10331,26 +10330,21 @@ No. Kendaraan: ${noKendaraan}
         rebuildStockCache(dataSource);
       }
 
-      // Sort logic
-      const sortedData = [...dataSource].sort((a, b) => {
-        // If filtering by item, sort chronologically (oldest first) to show stock flow
-        // Otherwise, sort by ID/Date newest first for general history
-        const parseDate = window._parseDateCached || ((d) => new Date(d.split('/').reverse().join('/')));
-        const dateA = parseDate(a.tanggal);
-        const dateB = parseDate(b.tanggal);
-        const idA = String(a.id ?? '');
-        const idB = String(b.id ?? '');
-
+      // Sort logic — gunakan Schwartzian transform: hitung tanggal sekali per item
+      const parseDate = window._parseDateCached || ((d) => new Date(d.split('/').reverse().join('/')));
+      const sortedData = dataSource.map((entry, idx) => {
+        const date = parseDate(entry.tanggal);
+        const id = String(entry.id ?? '');
+        return { entry, date, id, _idx: idx };
+      }).sort((a, b) => {
         if (activeItemFilter) {
-          // Chronological (Oldest First) for flow analysis
-          if (dateA - dateB !== 0) return dateA - dateB;
-          return idA.localeCompare(idB);
+          if (a.date - b.date !== 0) return a.date - b.date;
+          return a.id.localeCompare(b.id);
         } else {
-          // Reverse Chronological (Newest First) for general history
-          if (idA !== idB) return idB.localeCompare(idA);
-          return dateB - dateA;
+          if (a.id !== b.id) return b.id.localeCompare(a.id);
+          return b.date - a.date;
         }
-      });
+      }).map(({ entry }) => entry);
 
       // Batch insert menggunakan DocumentFragment untuk mengurangi layout thrashing
       const fragment = document.createDocumentFragment();
@@ -10579,7 +10573,7 @@ No. Kendaraan: ${noKendaraan}
       }
       if (!entry) {
         console.warn('Entry not found with id:', id, 'normalized:', normalizedId);
-        console.log('Available IDs in stokData:', stokData.map(e => e.id).slice(0, 10));
+        _log('Available IDs in stokData:', stokData.map(e => e.id).slice(0, 10));
         return;
       }
 
@@ -10650,11 +10644,10 @@ No. Kendaraan: ${noKendaraan}
       // Check both stokData and window.stokData for the entry
       let entry = stokData.find(item => String(item.id) === String(normalizedId));
 
-      if (!entry && typeof window !== 'undefined' && typeof window.stokData !== 'undefined' && Array.isArray(window.stokData)) {
+      if (!entry && typeof window !== 'undefined' && Array.isArray(window.stokData)) {
         entry = window.stokData.find(item => String(item.id) === String(normalizedId));
-        // Sync local stokData if entry found in window.stokData
         if (entry) {
-          stokData = [...window.stokData];
+          stokData = window.stokData;
         }
       }
       if (!entry) {
@@ -10713,8 +10706,8 @@ No. Kendaraan: ${noKendaraan}
       const totalSisaTableBody = document.getElementById("jenisTable").getElementsByTagName('tbody')[0];
       
       // Sync local stokData with window.stokData if available
-      if (typeof window !== 'undefined' && typeof window.stokData !== 'undefined' && Array.isArray(window.stokData)) {
-        stokData = [...window.stokData];
+      if (typeof window !== 'undefined' && Array.isArray(window.stokData)) {
+        stokData = window.stokData;
       }
 
       // Group data using helper
@@ -10858,7 +10851,7 @@ No. Kendaraan: ${noKendaraan}
             if (statusBar) statusBar.style.display = 'none';
           }, 2000);
           
-          console.log('🗑️ Cleared all stok data');
+          _log('🗑️ Cleared all stok data');
 
           // Clear remote stock data as well
           if (window.syncManager) {
@@ -10948,7 +10941,7 @@ No. Kendaraan: ${noKendaraan}
           if (statusBar) statusBar.style.display = 'none';
         }, 2000);
         
-        console.log(`✅ Exported ${exportData.length} entries to ${fileName}`);
+        _log(`✅ Exported ${exportData.length} entries to ${fileName}`);
       } catch (error) {
         console.error('Error exporting to Excel:', error);
         showStatus("Gagal mengexport data: " + error.message, "error");
@@ -11043,7 +11036,7 @@ No. Kendaraan: ${noKendaraan}
           if (statusBar) statusBar.style.display = 'none';
         }, 2000);
         
-        console.log(`✅ Exported ${exportData.length} stock entries to ${fileName}`);
+        _log(`✅ Exported ${exportData.length} stock entries to ${fileName}`);
       } catch (error) {
         console.error('Error exporting stock to Excel:', error);
         showStatus("Gagal mengexport data stok: " + error.message, "error");
@@ -11192,8 +11185,9 @@ No. Kendaraan: ${noKendaraan}
               } else {
                 // Generate new unique ID if ID already exists
                 let uniqueId = importedItem.id;
-                const allStokData = (typeof window !== 'undefined' && typeof window.stokData !== 'undefined' && Array.isArray(window.stokData)) 
-                  ? [...window.stokData, ...stokData]
+                // Gabungkan tanpa spread — pake Set untuk ID lookup
+                const allStokData = (typeof window !== 'undefined' && Array.isArray(window.stokData))
+                  ? window.stokData.concat(stokData.filter(s => !window.stokData.includes(s)))
                   : stokData;
                 
                 while (allStokData.some(item => String(item.id) === String(uniqueId))) {
@@ -11247,7 +11241,7 @@ No. Kendaraan: ${noKendaraan}
           // Update both arrays with synchronized data
           stokData = uniqueStokData;
           if (typeof window !== 'undefined') {
-            window.stokData = [...stokData];
+            window.stokData = stokData;
           }
           
           // Save all data to ensure consistency
@@ -11279,7 +11273,7 @@ No. Kendaraan: ${noKendaraan}
             showStatus(message, "saving");
           }
           
-          console.log(`✅ Imported ${importedData.length} entries (${updatedCount} updated, ${addedCount} added, ${errorCount} errors)`);
+          _log(`✅ Imported ${importedData.length} entries (${updatedCount} updated, ${addedCount} added, ${errorCount} errors)`);
         } else {
           showStatus("Import dibatalkan", "error");
         }
@@ -11509,13 +11503,13 @@ No. Kendaraan: ${noKendaraan}
             if (this.isSyncing) return;
 
             if (!this.backend.url || this.backend.url.includes('GANTI_DENGAN')) {
-                console.log('⏸️ Sync dinonaktifkan (#TESTING) - SCRIPT_URL kosong.');
+                _log('⏸️ Sync dinonaktifkan (#TESTING) - SCRIPT_URL kosong.');
                 return;
             }
 
             this.isSyncing = true;
             this.updateStatus('Sedang sinkronisasi...', 'syncing');
-            console.log('🔄 Starting full sync...');
+            _log('🔄 Starting full sync...');
 
             try {
                 // Collect all data for batch sync
@@ -11595,11 +11589,11 @@ No. Kendaraan: ${noKendaraan}
                 }
                 
                 if (hasData) {
-                    console.log('📡 Sending batch sync request (Mode: Incremental)...');
+                    _log('📡 Sending batch sync request (Mode: Incremental)...');
                     await this.backend.syncBatch(batchPayload);
-                    console.log('✅ Batch sync completed');
+                    _log('✅ Batch sync completed');
                 } else {
-                    console.log('⚠️ No data to sync');
+                    _log('⚠️ No data to sync');
                 }
                 
                 this.updateStatus('Sinkronisasi berhasil!', 'success');
