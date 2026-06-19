@@ -663,51 +663,27 @@ if (!DEBUG) {
 
         // Quick print from header (uses current print settings, opens modal silently to generate data, then prints)
         function handleQuickPrint() {
-            // Open modal to ensure latest data/layout prepared (hidden quickly)
-            const modal = document.getElementById('printModalOverlay');
-            const prevDisplay = modal.style.display;
-            modal.style.display = 'flex';
-            document.body.style.overflow = 'hidden';
+            // Quick print — langsung print tanpa menampilkan modal print setting
             try {
                 loadFontSizePreference();
                 loadFontWeightPreference();
                 loadFontFamilyPreference();
                 loadColumnSpacingFromStorage();
-                refreshPrintData();
-                // Small delay to allow DOM updates
-                setTimeout(async () => {
-                    // Auto-save log before printing (returns stock record promise)
-                    let recordPromise;
-                    try { 
-                        recordPromise = saveCurrentInputToLog(); 
-                    } catch (e) { 
-                        console.warn('Auto-save log failed:', e); 
-                    }
-                    
-                    // Wait for stock transactions to finish or at least start
-                    if (!recordPromise) {
-                        recordPromise = Promise.resolve();
-                    }
-
-                    // Trigger print
-                    printNow();
-                    // Close modal after triggering print
-                    hidePrintModal();
-                    
-                    // Sync in background after print triggered
-                    recordPromise.finally(() => {
-                         if (typeof syncManager !== 'undefined') {
-                            console.log('🖨️ Print triggered, starting background sync...');
-                            syncManager.syncAll();
-                        }
-                    });
-                }, 150);
+                // Siapkan data print tanpa modal
+                refreshPrintDataDirect();
+                // Auto-save log sebelum print
+                saveCurrentInputToLog();
+                // Langsung print via iframe tersembunyi
+                printNow();
+                // Sync latar belakang
+                if (typeof syncManager !== 'undefined') {
+                    setTimeout(function() {
+                        syncManager.syncAll().catch(function() {});
+                    }, 500);
+                }
             } catch (e) {
                 console.error('Quick print error:', e);
-                // Fallback: show modal so user can print manually
-                modal.style.display = 'flex';
-            } finally {
-                // Restore body overflow when modal hides via hidePrintModal
+                showPrintModal();
             }
         }
         // Utilitas database toko bersama untuk autocomplete dan auto-fill
@@ -2840,7 +2816,11 @@ No. Kendaraan: ${noKendaraan}
         }
 
         function refreshPrintData() {
-            // Use the clean version that doesn't include headers
+            refreshPrintDataClean();
+        }
+
+        // Untuk quick print — tanpa modal
+        function refreshPrintDataDirect() {
             refreshPrintDataClean();
         }
 
@@ -2964,15 +2944,15 @@ No. Kendaraan: ${noKendaraan}
         function printNow() {
             const container = document.querySelector('.print-textarea-container');
             const textElements = container.querySelectorAll('.draggable-text-item');
-            
+
             if (textElements.length === 0) {
                 alert('Tidak ada konten untuk dicetak!');
                 return;
             }
-            
+
             // Show position overlay for debugging
             showPositionOverlay();
-            
+
             // Capture positions BEFORE any adjustments
             let positionedTexts = [];
             textElements.forEach(element => {
@@ -2987,16 +2967,20 @@ No. Kendaraan: ${noKendaraan}
                         ? (element.dataset.rawText || textContent.textContent)
                         : textContent.textContent;
                     const html = (type === 'kaca-data') ? textContent.innerHTML : null;
-                    
+
                     positionedTexts.push({ x, y, text, type, html });
                 }
             });
-            
+
             // Debug positions before printing
             debugPositions();
-            
-            // Create a new window for printing with positioned layout
-            const printWindow = window.open('', '_blank');
+
+            // Buat iframe tersembunyi untuk print — langsung print dialog, tanpa tab/window baru
+            var printFrame = document.createElement('iframe');
+            printFrame.style.cssText = 'position:absolute;top:-9999px;left:-9999px;width:1px;height:1px;';
+            document.body.appendChild(printFrame);
+            var printWindow = printFrame.contentWindow;
+            var printDoc = printFrame.contentDocument || printDoc;
             
             // Sort by Y position first, then X position for consistent layout
             positionedTexts.sort((a, b) => {
@@ -3045,28 +3029,28 @@ No. Kendaraan: ${noKendaraan}
             });
             
             // Build print content without document.write (deprecated)
-            const _printHead = printWindow.document.head;
-            const _printBody = printWindow.document.body;
+            const _printHead = printDoc.head;
+            const _printBody = printDoc.body;
 
             // Meta charset
-            const _metaCharset = printWindow.document.createElement('meta');
+            const _metaCharset = printDoc.createElement('meta');
             _metaCharset.setAttribute('charset', 'UTF-8');
             _printHead.appendChild(_metaCharset);
 
             // Google Fonts preconnect + stylesheet
-            const _preconn1 = printWindow.document.createElement('link');
+            const _preconn1 = printDoc.createElement('link');
             _preconn1.rel = 'preconnect'; _preconn1.href = 'https://fonts.googleapis.com';
             _printHead.appendChild(_preconn1);
-            const _preconn2 = printWindow.document.createElement('link');
+            const _preconn2 = printDoc.createElement('link');
             _preconn2.rel = 'preconnect'; _preconn2.href = 'https://fonts.gstatic.com'; _preconn2.crossOrigin = 'anonymous';
             _printHead.appendChild(_preconn2);
-            const _fontLink = printWindow.document.createElement('link');
+            const _fontLink = printDoc.createElement('link');
             _fontLink.rel = 'stylesheet';
             _fontLink.href = 'https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500;600;700&display=swap';
             _printHead.appendChild(_fontLink);
 
             // Inline styles via <style> tag
-            const _style = printWindow.document.createElement('style');
+            const _style = printDoc.createElement('style');
             _style.textContent = (`
                         @page {
                             size: 215mm 330mm; /* F4 */
@@ -3182,7 +3166,7 @@ No. Kendaraan: ${noKendaraan}
             _printHead.appendChild(_style);
 
             // Body content
-            const _page = printWindow.document.createElement('div');
+            const _page = printDoc.createElement('div');
             _page.className = 'page';
             _page.innerHTML = positionedHTML;
             _printBody.appendChild(_page);
@@ -3191,39 +3175,19 @@ No. Kendaraan: ${noKendaraan}
             // Trigger Sync (Log Surat Jalan) when printing
             if (window.syncManager) {
                 console.log('🖨️ Print triggered sync...');
-                // Use a small delay to allow print dialog to appear without blocking
-                setTimeout(() => {
-                    window.syncManager.syncAll().catch(err => console.error('Auto-sync on print failed:', err));
+                setTimeout(function() {
+                    window.syncManager.syncAll().catch(function(err) { console.error('Auto-sync on print failed:', err); });
                 }, 500);
             }
 
-            // Wait for content and web fonts to load before printing
-            printWindow.onload = function() {
-                try {
-                    const timeoutMs = 1500;
-                    let timedOut = false;
-                    const timeoutId = setTimeout(() => { timedOut = true; printWindow.print(); printWindow.close(); }, timeoutMs);
-                    const ready = (printWindow.document.fonts && printWindow.document.fonts.ready) ? printWindow.document.fonts.ready : Promise.resolve();
-                    ready.then(() => {
-                        if (!timedOut) {
-                            clearTimeout(timeoutId);
-                            // Slight delay ensures layout with loaded fonts
-                            setTimeout(() => { printWindow.print(); printWindow.close(); }, 50);
-                        }
-                    }).catch(() => {
-                        // Fallback if fonts API fails
-                        if (!timedOut) {
-                            clearTimeout(timeoutId);
-                            printWindow.print();
-                            printWindow.close();
-                        }
-                    });
-                } catch (_) {
-                    // Last resort
-                    printWindow.print();
-                    printWindow.close();
-                }
-            };
+            // Print dialog otomatis — setTimeout pendek agar konten sempat di-render
+            setTimeout(function() {
+                try { printWindow.print(); } catch (_) {}
+                // Hapus iframe setelah print dialog ditutup
+                setTimeout(function() {
+                    try { document.body.removeChild(printFrame); } catch (_) {}
+                }, 1000);
+            }, 300);
         }
 
         // Close print modal when clicking outside
@@ -11361,7 +11325,7 @@ No. Kendaraan: ${noKendaraan}
 
     // KONFIGURASI: Masukkan URL Web App Google Apps Script Anda di sini
     // #TESTING - sinkronisasi dinonaktifkan sementara
-    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyefDcrisPwq9v7QjxgGbUEDXGjQEHKp6lyYlYaX4DgfwmkFcdgZwLOSuLI02R8neF_-Q/exec';
+    const SCRIPT_URL = ''; // 'https://script.google.com/macros/s/AKfycbyefDcrisPwq9v7QjxgGbUEDXGjQEHKp6lyYlYaX4DgfwmkFcdgZwLOSuLI02R8neF_-Q/exec';
 
     // Function to get aggregated stock data for sync
     function getAggregatedStockData() {
