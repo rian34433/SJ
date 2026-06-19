@@ -11325,7 +11325,7 @@ No. Kendaraan: ${noKendaraan}
 
     // KONFIGURASI: Masukkan URL Web App Google Apps Script Anda di sini
     // #TESTING - sinkronisasi dinonaktifkan sementara
-    const SCRIPT_URL = ''; // 'https://script.google.com/macros/s/AKfycbyefDcrisPwq9v7QjxgGbUEDXGjQEHKp6lyYlYaX4DgfwmkFcdgZwLOSuLI02R8neF_-Q/exec';
+    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyefDcrisPwq9v7QjxgGbUEDXGjQEHKp6lyYlYaX4DgfwmkFcdgZwLOSuLI02R8neF_-Q/exec';
 
     // Function to get aggregated stock data for sync
     function getAggregatedStockData() {
