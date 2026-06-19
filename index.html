@@ -1,0 +1,583 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Form Input Toko</title>
+    <!-- Google Fonts - Critical: preconnect + preload -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500;600;700&display=swap" onload="this.rel='stylesheet'">
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap" onload="this.rel='stylesheet'">
+    <noscript>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@300;400;500;600;700&display=swap">
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;600&display=swap">
+    </noscript>
+    <!-- External CSS (non-blocking) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css" media="print" onload="this.media='all'">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css" media="print" onload="this.media='all'">
+    <noscript>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/flatpickr/dist/flatpickr.min.css">
+    </noscript>
+    <!-- App CSS - Critical -->
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div id="suratJalanSection" class="container">
+        <div class="header">
+            <h1>SURAT JALAN</h1>
+            <div class="header-controls">
+                <button id="backupBtn" class="header-btn" title="Backup Data">💾 Backup</button>
+                <button id="restoreBtn" class="header-btn" title="Restore Data">📁 Restore</button>
+                <input type="file" id="restoreFile" accept=".json" style="display: none;">
+            </div>
+        </div>
+        
+        <div class="form-container"style="padding-top: 0px;">
+            <div class="main-layout">
+                <!-- Sebelah Kiri - Form Input Data Toko -->
+                <div class="left-section" style="
+						   height: 352px;
+   						   margin-bottom: 5px;">
+                    
+                    <form id="tokoForm">
+                        <div class="form-row">
+                            <!-- Kolom Kiri -->
+                            <div class="form-column">
+                                <div class="form-group">
+                                    <div class="autocomplete-container">
+                                        <div class="input-with-icon">
+                                            <input 
+                                                type="text" 
+                                                id="namaToko" 
+                                                name="namaToko" 
+                                                placeholder="Nama Toko"
+                                                required
+                                                autocomplete="off"
+                                            >
+                                            <button type="button" class="input-icon" onclick="showQuickAddModal()" title="Tambah Toko Baru">
+                                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                                                    <line x1="12" y1="5" x2="12" y2="19"></line>
+                                                    <line x1="5" y1="12" x2="19" y2="12"></line>
+                                                </svg>
+                                            </button>
+                                        </div>
+                                        <div class="autocomplete-dropdown" id="autocompleteDropdown">
+                                            <!-- Autocomplete items will be generated here -->
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <textarea 
+                                        id="alamat" 
+                                        name="alamat" 
+                                        placeholder="Alamat"
+                                        readonly
+                                        class="auto-resize"
+                                    ></textarea>
+                                </div>
+
+                                <div class="form-group">
+                                    <input 
+                                        type="text" 
+                                        id="alias" 
+                                        name="alias" 
+                                        placeholder="Alias"
+                                        autocomplete="off"
+                                    >
+                                </div>
+                            </div>
+                            
+                            <!-- Kolom Kanan -->
+                            <div class="form-column">
+                                <div class="form-group">
+                                    <input 
+                                        type="date" 
+                                        id="tanggal" 
+                                        name="tanggal" 
+                                        placeholder="Tanggal"
+                                        required
+                                    >
+                                </div>
+                                
+                                <div class="form-group" id="nomorSJGroup">
+                                    <input 
+                                        type="text" 
+                                        id="nomorSJ" 
+                                        name="nomorSJ" 
+                                        placeholder="No. SJ"
+                                        inputmode="numeric"
+                                        pattern="\d{7}"
+                                        minlength="7"
+                                        maxlength="7"
+                                        required
+                                        aria-describedby="nomorSJWarning"
+                                    >
+                                    <div id="nomorSJWarning" class="field-warning" style="display:none;" role="alert" aria-live="polite">
+                                        ⚠️ No. SJ sama dengan input sebelumnya
+                                    </div>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <input 
+                                        type="text" 
+                                        id="supir" 
+                                        name="supir" 
+                                        placeholder="Nama Supir"
+                                        list="datalistSupir"
+                                        autocomplete="off"
+                                        required
+                                    >
+                                    <datalist id="datalistSupir"></datalist>
+                                </div>
+                                
+                                <div class="form-group">
+                                    <input 
+                                        type="text" 
+                                        id="noKendaraan" 
+                                        name="noKendaraan" 
+                                        placeholder="No. Kendaraan"
+                                        list="datalistNoKendaraan"
+                                        autocomplete="off"
+                                        required
+                                    >
+                                    <datalist id="datalistNoKendaraan"></datalist>
+                                </div>
+                            </div>
+                        </div>
+                    </form>
+                </div>
+                
+                <!-- Sebelah Kanan - Log Input History -->
+                <div class="right-section" style="
+								height: 352px;
+								margin-bottom: 5px;
+								padding-top: 5px;
+								padding-left: 20px;
+								padding-bottom: 20px;">
+                    <div class="log-header" aria-expanded="true" aria-controls="inputLogContainer" style="padding-bottom: 5px;">
+                        <h3>📝 LOG SJ</h3>
+                        <div class="log-header-actions" role="group" aria-label="Log actions" style="display: flex; gap: 10px; align-items: stretch; opacity: 1; flex-flow: column wrap-reverse; place-content: flex-end center;">
+                            <input type="text" id="logSearchInput" class="log-search-input" placeholder="Search" oninput="applyLogSearch()" title="Ketik untuk mencari di log">
+                            <div class="log-action-buttons">
+                                <button type="button" class="btn-export-log" onclick="exportInputLogToCSV()" title="Export ke CSV (Excel)">⬇️ Export Log</button>
+                                <button type="button" class="btn-import-log" onclick="document.getElementById('importLogFileInput').click()" title="Import dari CSV (Excel)">⬆️ Import Log</button>
+                                <input type="file" id="importLogFileInput" accept=".csv" style="display:none" onchange="handleImportLogFile(event)">
+                                <button type="button" class="btn-restore-log" onclick="triggerRestoreFileSelection()" title="Restore dari beberapa file backup (CSV/JSON)">🔄Restore Log</button>
+                                <input type="file" id="restoreLogFileInput" accept=".csv,.json" multiple="multiple" style="display:none" onchange="handleRestoreLogFiles(event)">
+                                <button type="button" class="btn-clear-log" onclick="clearInputLog()" title="Hapus semua log">🗑️ Clear Log</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="log-container" id="inputLogContainer" style="display:block;">
+                        <!-- Log entries will be generated here -->
+                        <div class="no-log-message">
+                            <p>Belum ada log input</p>
+                            <p class="log-hint">Log akan tersimpan otomatis saat Anda menekan Print Sekarang</p>
+                        </div>
+                    </div>
+                    <div class="log-actions" style="display:none; gap:0px; margin-top:0px;"></div>
+                    <button type="button" class="log-fab" onclick="event.stopPropagation(); toggleLogFab(this)" title="Tampilkan/sembunyikan tombol log"><span class="icon-plus">＋</span></button>
+                    
+                    
+                </div>
+            </div>
+            
+
+            
+            <!-- Container Data Kaca -->
+            <div class="kaca-data-container">
+                <div class="kaca-header" style="margin-bottom: 6px;">
+                    <button type="button" class="btn-refresh-page" onclick="refreshPage()">🔄 Refresh Halaman</button>
+                    <div class="kaca-controls">
+                            <button type="button" class="btn-print-now" onclick="handleQuickPrint()">🖨️ Print Sekarang</button>
+                            <button type="button" class="btn-print" onclick="showPrintModal()">🖨️ Print Setting</button>
+                        <button type="button" class="btn-add-row" onclick="addKacaRow()">➕ Tambah Baris</button>
+                        <button type="button" class="btn-remove-row" onclick="removeKacaRow()">➖ Hapus Baris</button>
+                    </div>
+                </div>
+                
+                <div class="kaca-table-container">
+                    <table class="kaca-table" id="kacaTable">
+                        <thead>
+                            <tr>
+                                <th style="min-width: 220px;">JENIS KACA</th>
+                                <th>PWD</th>
+                                <th style="width: 130px;">NO DO</th>
+                                <th style="min-width: 200px;">UKURAN</th>
+                                <th style="width: 170px;">HARGA</th>
+                                <th style="width: 130px;">BOX</th>
+                                <th style="width: 130px;">LBR</th>
+                                <th>TOTAL LBR</th>
+                            </tr>
+                        </thead>
+                        <tbody id="kacaTableBody">
+                            <!-- Baris default akan di-generate oleh JavaScript -->
+                        </tbody>
+                        <tfoot>
+                            <tr class="total-row">
+                                <td class="total-inputs">
+                                    <div class="total-input-group">
+                                        <input type="text" placeholder="CONT" class="cont-input">
+                                        <input type="text" placeholder="SEAL" class="seal-input">
+                                    </div>
+                                </td>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                                <td></td>
+                                <td class="total-lbr grand-total">
+                                    <input type="text" placeholder="0 LBR" class="grand-total-input" readonly>
+                                </td>
+                            </tr>
+                        </tfoot>
+                    </table>
+                    <!-- Datalists for auto-fill suggestions -->
+                    <datalist id="datalistJenisKaca"></datalist>
+                    <datalist id="datalistUkuran"></datalist>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Popup Daftar Toko -->
+    <div class="popup-overlay" id="popupOverlay">
+        <div class="popup">
+            <div class="popup-header">
+                <h3 class="popup-title">📋 Daftar Toko dan Alamat</h3>
+                <button class="close-btn" onclick="hideTokoList()">&times;</button>
+            </div>
+            <div class="toko-list" id="tokoList">
+                <!-- Daftar toko akan di-generate oleh JavaScript -->
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Tambah/Edit Toko -->
+    <div class="modal-overlay" id="modalOverlay">
+        <div class="modal" id="mainModal">
+            <div class="modal-header">
+                <h3 class="modal-title" id="modalTitle">➕ Tambah Toko Baru</h3>
+                <button class="modal-close" onclick="hideModal()">&times;</button>
+            </div>
+            <form class="modal-form" id="modalForm">
+                <input type="hidden" id="editIndex" value="">
+                <div>
+                    <input 
+                        type="text" 
+                        id="modalNamaToko" 
+                        placeholder="Nama Toko"
+                        required style="border-right-width: 2px;height: 47px;width: 450px;"
+                    >
+                </div>
+                <div>
+                    <textarea 
+                        id="modalAlamat" 
+                        placeholder="Alamat Toko (gunakan Enter untuk baris baru)"
+                        required style="width: 453px;"
+                    ></textarea>
+                </div>
+                <div class="modal-actions">
+                    <button type="button" class="btn-cancel" onclick="hideModal()">Batal</button>
+                    <button type="submit" class="btn-save" id="saveBtn">Simpan</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Quick Add Modal -->
+    <div class="modal-overlay" id="quickAddModalOverlay">
+        <div class="modal quick-add">
+            <div class="modal-header">
+                <h3 class="modal-title">➕ Tambah Toko Cepat</h3>
+                <button class="modal-close" onclick="hideQuickAddModal()">&times;</button>
+            </div>
+            
+            <!-- Quick Actions Tabs -->
+            <div class="quick-tabs">
+                <button type="button" class="tab-btn active" onclick="showQuickAddTab()">➕ Tambah Baru</button>
+                <button type="button" class="tab-btn" onclick="showQuickListTab()">📋 Lihat Daftar</button>
+            </div>
+            
+            <!-- Tab Content -->
+            <div class="tab-content">
+                <!-- Tab 1: Form Tambah Toko -->
+                <div class="tab-pane active" id="quickAddTab">
+                    <form class="modal-form" id="quickAddForm">
+                        <div>
+                            <input 
+                                type="text" 
+                                id="quickAddNamaToko" 
+                                placeholder="Nama Toko"
+                                required
+                            >
+                        </div>
+                        <div>
+                            <textarea 
+                                id="quickAddAlamat" 
+                                placeholder="Alamat Toko (gunakan Enter untuk baris baru)"
+                                required
+                            ></textarea>
+                        </div>
+                        <div class="modal-actions">
+                            <button type="button" class="btn-cancel" onclick="hideQuickAddModal()">Batal</button>
+                            <button type="submit" class="btn-save">Simpan</button>
+                        </div>
+                    </form>
+                </div>
+                
+                <!-- Tab 2: Daftar Toko -->
+                <div class="tab-pane" id="quickListTab">
+                    <div class="quick-list-container">
+                        <div class="quick-list-header">
+                            <div class="quick-list-actions">
+                                <button type="button" class="btn-export-toko" onclick="exportTokoListToJSON()" title="Export daftar toko ke file JSON">⬇️ Export Toko</button>
+                                <button type="button" class="btn-import-toko" onclick="document.getElementById('importTokoFileInput').click()" title="Import daftar toko dari file JSON">⬆️ Import Toko</button>
+                                <input type="file" id="importTokoFileInput" accept=".json" style="display:none" onchange="handleImportTokoListFile(event)">
+                            </div>
+                        </div>
+                        <div class="quick-toko-list" id="quickTokoList">
+                            <!-- Daftar toko akan di-generate di sini -->
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Print Modal -->
+    <div class="modal-overlay" id="printModalOverlay">
+        <div class="modal print-modal" style="padding-top: 10px;">
+            <div class="modal-header">
+                <h3 class="modal-title">🖨️ Print Data</h3>
+                <button class="modal-close" onclick="hidePrintModal()">&times;</button>
+            </div>
+            
+            <div class="print-content">
+                <div class="print-textarea-container">
+                    <!-- Draggable text elements will be generated here -->
+                </div>
+                
+                <div class="print-actions">
+                    <!-- Font Controls Section -->
+                    <div class="print-controls-section">
+                        <h4 class="controls-section-title">📝 Pengaturan Font</h4>
+                        <div class="font-controls">
+                            <label for="fontSizeControl">Ukuran Font:</label>
+                            <select id="fontSizeControl" onchange="changeFontSize()">
+                                <option value="8">8px - Sangat Kecil</option>
+                                <option value="10" selected>10px - Kecil</option>
+                                <option value="12">12px - Sedang</option>
+                                <option value="14">14px - Besar</option>
+                                <option value="16">16px - Sangat Besar</option>
+                                <option value="18">18px - Ekstra Besar</option>
+                            </select>
+                             <label for="fontWeightControl" style="margin-left: 10px;">Ketebalan Teks:</label>
+                             <select id="fontWeightControl" onchange="changeFontWeight()">
+                                 <option value="300">Light</option>
+                                 <option value="400" selected>Normal</option>
+                                 <option value="500">Medium</option>
+                                 <option value="600">Semi Bold</option>
+                                 <option value="700">Bold</option>
+                             </select>
+                             <label for="fontFamilyControl" style="margin-left: 10px;">Gaya Font:</label>
+                             <select id="fontFamilyControl" onchange="changeFontFamily()">
+                                 <option value="'Roboto Mono', 'Courier New', monospace" selected>Roboto Mono (Monospace)</option>
+                                 <option value="Arial, Helvetica, sans-serif">Arial (Sans)</option>
+                                 <option value="'Segoe UI', Tahoma, Geneva, Verdana, sans-serif">Segoe UI (Sans)</option>
+                                 <option value="'Times New Roman', Times, serif">Times New Roman (Serif)</option>
+                                 <option value="'Courier New', Courier, monospace">Courier New (Monospace)</option>
+                             </select>
+                        </div>
+                    </div>
+                    
+                    <!-- Column Spacing Section -->
+                    <div class="print-controls-section">
+                        <div class="controls-section-header">
+                            <h4 class="controls-section-title">📊 Pengaturan Kolom</h4>
+                            <button type="button" class="btn-print-now" onclick="printNow()">🖨️ Print Sekarang</button>
+                            <button type="button" class="btn-save-positions" onclick="saveCurrentPositions()" title="Simpan posisi teks">💾 Simpan Posisi</button>
+                            <button type="button" class="btn-export-positions" onclick="exportPositionsToJSON()" title="Export posisi ke file JSON">⬇️ Export Posisi</button>
+                            <button type="button" class="btn-import-positions" onclick="document.getElementById('importPositionsFileInput').click()" title="Import posisi dari file JSON">⬆️ Import Posisi</button>
+                            <input type="file" id="importPositionsFileInput" accept=".json" style="display:none" onchange="handleImportPositionsFile(event)">
+                        </div>
+                        <div class="individual-column-controls">
+                            <div class="column-controls-grid">
+                                <div class="column-control-item">
+                                    <label>Jenis Kaca:</label>
+                                    <input type="number" id="colJenisKaca" value="15" min="8" max="30">
+                                </div>
+                                <div class="column-control-item">
+                                    <label>PWD:</label>
+                                    <input type="number" id="colPwd" value="8" min="5" max="15">
+                                </div>
+                                <div class="column-control-item">
+                                    <label>NO DO:</label>
+                                    <input type="number" id="colNoDo" value="12" min="8" max="20">
+                                </div>
+                                <div class="column-control-item">
+                                    <label>Ukuran:</label>
+                                    <input type="number" id="colUkuran" value="12" min="8" max="20">
+                                </div>
+                                <div class="column-control-item">
+                                    <label>BOX:</label>
+                                    <input type="number" id="colBox" value="10" min="6" max="15">
+                                </div>
+                                <div class="column-control-item">
+                                    <label>LBR:</label>
+                                    <input type="number" id="colLbr" value="10" min="6" max="15">
+                                </div>
+                                <div class="column-control-item">
+                                    <label>Total LBR:</label>
+                                    <input type="number" id="colTotalLbr" value="12" min="8" max="20">
+                                </div>
+                            </div>
+                            
+                            <div class="spacing-presets">
+                                <span class="preset-label">Preset Cepat:</span>
+                                <button type="button" class="preset-btn" onclick="applyPreset('compact')">Compact</button>
+                                <button type="button" class="preset-btn active" onclick="applyPreset('normal')">Normal</button>
+                                <button type="button" class="preset-btn" onclick="applyPreset('wide')">Wide</button>
+                                <button type="button" class="preset-btn" onclick="applyPreset('custom')">Custom</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Position Controls Section removed per request -->
+                    
+                    
+                </div>
+            </div>
+    </div>
+  </div>
+
+  <div id="stokSection" class="container" style="padding-bottom: 10px;">
+    <div class="header">
+      <h1>STOCK</h1>
+    </div>
+    
+    <!-- Left Column for Form Input -->
+    <div class="left-column">
+      <button class="toggle-section-btn" id="toggleFormBtn">
+        <span>Input Form</span>
+        <i class="fas fa-chevron-down"></i>
+      </button>
+      <form id="stokForm">
+        
+        <input type="text" id="nama" placeholder="Nama Toko" required list="namaTokoList">
+        <datalist id="namaTokoList"></datalist>
+        <input type="date" id="tanggalStok" required style="width: 100%; box-sizing: border-box;">
+        <input type="text" id="nota" placeholder="No. Nota" required>
+        
+        <!-- Input Tebal Kaca dengan Satuan -->
+        <div class="input-with-unit">
+          <input type="text" id="tebal" placeholder="Jenis Kaca : [FL 2MM MGL]" min="1" required list="jenisKacaList">
+          <datalist id="jenisKacaList"></datalist>
+        </div>
+        
+        <input type="text" id="ukuran" placeholder="Ukuran Kaca : [60X48] [3660X2440]" required list="ukuranKacaList">
+        <datalist id="ukuranKacaList"></datalist>
+        <input type="text" id="harga" placeholder="Harga Beli" class="field-pembelian" oninput="formatRupiahInput(this)">
+        <input type="text" id="hargaJual" placeholder="Jual" class="field-penjualan" style="display: none;" disabled oninput="formatRupiahInput(this)">
+        <input type="text" id="masuk" placeholder="Kaca Masuk" min="0" oninput="formatRupiahInput(this); toggleJumlahMasukKeluar()" class="field-pembelian">
+        <input type="text" id="keluar" placeholder="Kaca Keluar" min="0" oninput="formatRupiahInput(this); toggleJumlahMasukKeluar()" class="field-penjualan" style="display: none;" disabled>
+        <button type="button" id="submitBtn" onclick="tambahData()">Tambah Data</button>
+        <button type="button" id="cancelEditBtn" class="cancel-edit-btn action-btn" onclick="cancelEdit()" style="display: none;">Batal Edit</button>
+      </form>
+    </div>
+
+    <!-- Right Column for Total Sisa per Jenis -->
+    <div class="right-column">
+      <div id="totalSisaContainer" class="total-sisa-container">
+        <table id="jenisTable"style="margin-top:0px;">
+          <thead>
+            <tr>
+              <th>Jenis Kaca</th>
+              <th>Ukuran Kaca</th>
+              <th id="hargaToggle" onclick="togglePriceGrouping()" style="cursor: pointer; transition: all 0.3s ease; white-space: nowrap;" title="Klik untuk aktifkan/nonaktifkan perhitungan per harga">
+                 Harga
+               </th>
+              <th>Kaca Masuk</th>
+              <th>Kaca Keluar</th>
+              <th>Sisa Stok</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- Riwayat Stok -->
+  <div id="riwayatStokSection" class="container" style="flex-direction: column; padding-top: 0px;">
+    <div class="right-column" style="width: 100%;">
+      
+      <!-- Status Bar -->
+      <div id="statusBar" class="status-bar" style="display: none;"></div>
+      
+      <!-- Action Menu -->
+      <div class="action-menu" style="padding-bottom: 5px;">
+        <div class="action-group">
+          <button class="action-btn export-btn" onclick="exportToExcel()">
+            <i class="fas fa-file-excel"></i> Export Riwayat
+          </button>
+          <button class="action-btn export-btn" onclick="exportStock()">
+            <i class="fas fa-file-excel"></i> Export Stock
+          </button>
+          <button class="action-btn clear-btn" onclick="clearData()">
+            <i class="fas fa-trash"></i> Clear Data
+          </button>
+        </div>
+        <!-- Search Box -->
+        <div class="search-container" style="margin-left: 0px;">
+          <div class="search-box">
+            <i class="fas fa-search"></i>
+            <input type="text" id="searchInput" placeholder="Cari data..." oninput="performSearch()">
+            <button class="search-clear-btn" id="searchClearBtn" onclick="clearSearch()" style="display: none;">
+              <i class="fas fa-times"></i>
+            </button>
+          </div>
+        </div>
+      </div>
+      
+      <div class="riwayat-stok-container">
+        <table id="stokTable">
+          <thead>
+            <tr>
+              <th>No</th>
+              <th>Nama</th>
+              <th>Tanggal</th>
+              <th>Nota</th>
+              <th>Jenis Kaca</th>
+              <th>Ukuran</th>
+              <th>Harga Beli</th>
+              <th>Harga Jual</th>
+              <th>Masuk</th>
+              <th>Keluar</th>
+              <th>Sisa</th>
+              <th>Aksi</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    <p>&copy; Rian v19.06.26 | Trae | Cursor | ClaudeCLI <a href="https://i.redd.it/2plmf8vh7ryf1.jpeg">Privacy Policy</a></p>
+  </div>
+
+
+    <!-- External JS (defer untuk tidak blocking render) -->
+    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/flatpickr" defer></script>
+    <!-- App JS -->
+    <script src="script.js" defer></script>
+</body>
+</html>
