@@ -42,6 +42,7 @@
             max-width: 100%;
             box-sizing: border-box;
             min-height: 60px;
+            margin-bottom: 10px;
         }
 
         .header h1 {
@@ -165,7 +166,7 @@
         .form-container {
             padding: 20px;
             position: relative;
-            max-width: 1600px;
+            max-width: 100%;
             width: 100%;
             margin: 0 auto;
             box-sizing: border-box;
@@ -700,9 +701,6 @@
             width: 18px;
             height: 18px;
             transition: all 0.3s ease;
-        }
-
-        .input-icon svg {
             transform-origin: center;
         }
 
@@ -791,6 +789,19 @@
             max-width: 500px;
             width: 90%;
             padding: 20px;
+            opacity: 0;
+            transform: scale(0.95) translateY(10px);
+            transition: opacity 0.25s ease-out, transform 0.25s ease-out;
+        }
+
+        .modal.quick-add.modal-open {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+        }
+
+        .modal.quick-add.modal-closing {
+            opacity: 0;
+            transform: scale(0.95) translateY(10px);
         }
 
         .modal.quick-add .modal-title {
@@ -1145,16 +1156,32 @@
         @keyframes kacaRowSlideIn {
           from {
             opacity: 0;
-            transform: translateX(-25px);
+            transform: translateY(10px) scale(0.98);
           }
           to {
             opacity: 1;
-            transform: translateX(0);
+            transform: translateY(0) scale(1);
           }
         }
 
         .kaca-table tbody tr.kaca-row-new {
-          animation: kacaRowSlideIn 0.35s ease forwards;
+          animation: kacaRowSlideIn 0.3s ease-out forwards;
+        }
+
+        /* Animation for removed kaca row */
+        @keyframes kacaRowSlideOut {
+          from {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+          }
+          to {
+            opacity: 0;
+            transform: translateY(-10px) scale(0.98);
+          }
+        }
+
+        .kaca-table tbody tr.kaca-row-removing {
+          animation: kacaRowSlideOut 0.25s ease-in forwards;
         }
 
         .kaca-table input {
@@ -1655,7 +1682,7 @@
 
         @media (max-width: 1600px) {
             .form-container {
-                max-width: 95%;
+                max-width: 100%;
             }
         }
 
@@ -1666,6 +1693,19 @@
             max-height: 90vh;
             display: flex;
             flex-direction: column;
+            opacity: 0;
+            transform: scale(0.95) translateY(10px);
+            transition: opacity 0.25s ease-out, transform 0.25s ease-out;
+        }
+
+        .print-modal.modal-open {
+            opacity: 1;
+            transform: scale(1) translateY(0);
+        }
+
+        .print-modal.modal-closing {
+            opacity: 0;
+            transform: scale(0.95) translateY(10px);
         }
 
         .print-content {
@@ -2773,14 +2813,14 @@
           align-items: center;
           visibility: hidden;
           opacity: 0;
-          max-height: 0;
-          overflow: hidden;
-          transition: all 0.35s ease;
+          height: 0;
+          overflow: visible;
+          transition: visibility 0.25s, opacity 0.25s ease-out;
         }
         .right-section.log-fab-open .log-action-buttons {
           visibility: visible;
           opacity: 1;
-          max-height: 300px;
+          height: auto;
         }
 
         /* Staggered slide animation for each button */
@@ -2906,53 +2946,40 @@
         .log-content-detailed.collapsing {
           display: block;
           overflow: hidden;
+          will-change: transform, opacity;
         }
 
         .log-content-detailed.expanding {
-          animation: logDetailExpand 0.3s ease forwards;
+          animation: logDetailExpand 0.25s cubic-bezier(0.4, 0, 0.2, 1) forwards;
         }
 
         .log-content-detailed.collapsing {
-          animation: logDetailCollapse 0.25s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+          animation: logDetailCollapse 0.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
         }
 
         @keyframes logDetailExpand {
           from {
             opacity: 0;
-            max-height: 0;
-            padding-top: 0;
-            padding-bottom: 0;
-            margin-top: 0;
-            margin-bottom: 0;
+            transform: scaleY(0.3);
+            transform-origin: top;
           }
           to {
             opacity: 1;
-            max-height: 500px;
-            padding-top: 10px;
-            padding-bottom: 5px;
-            margin-top: 8px;
-            margin-bottom: 4px;
+            transform: scaleY(1);
+            transform-origin: top;
           }
         }
 
         @keyframes logDetailCollapse {
           from {
             opacity: 1;
-            max-height: 500px;
-            padding-top: 10px;
-            padding-bottom: 5px;
-            margin-top: 8px;
-            margin-bottom: 4px;
-            border-top: 1px solid #e9ecef;
+            transform: scaleY(1);
+            transform-origin: top;
           }
           to {
             opacity: 0;
-            max-height: 36px;
-            padding-top: 0;
-            padding-bottom: 0;
-            margin-top: 0;
-            margin-bottom: 0;
-            border-top: 0px solid transparent;
+            transform: scaleY(0.3);
+            transform-origin: top;
           }
         }
 
@@ -3218,26 +3245,38 @@
 
 
 /* ===== STOCK CSS (Part 1) ===== */
-    * {
+    #stokSection, #riwayatStokSection,
+    #stokSection *, #riwayatStokSection * {
       box-sizing: border-box;
+    }
+
+    #stokSection, #riwayatStokSection {
       margin: 0;
       padding: 0;
       font-family: 'Poppins', sans-serif;
     }
 
-    body {
-      background-color: #f5f7fa;
+    #stokSection, #riwayatStokSection {
       color: #333;
       line-height: 1.6;
     }
 
-    .container {
+    #stokSection {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      padding: 20px;
+      max-width: 100%;
+      margin: 0;
+    }
+
+    #riwayatStokSection {
       display: flex;
       flex-wrap: wrap;
       gap: 20px;
       padding: 20px;
-      max-width: 1600px;
-      margin: 0 auto;
+      max-width: 100%;
+      margin: 0;
     }
 
     .left-column, .right-column {
@@ -3252,10 +3291,6 @@
     .right-column {
       flex: 1;
       min-width: 300px;
-      background: white;
-      border-radius: 10px;
-      box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-      padding: 10px;
     }
 
     .toggle-section-btn {
@@ -3297,11 +3332,30 @@
       border: 1px solid #ddd;
       border-radius: 5px;
       font-size: 14px;
+      font-family: inherit;
+      color: #333;
     }
 
     input:focus {
       outline: none;
       border-color: #4a6fa5;
+    }
+
+    #tanggalStok {
+      font-family: inherit;
+      font-size: 14px;
+      color: #333;
+      width: 100%;
+      box-sizing: border-box;
+    }
+
+    #tanggalStok::-webkit-calendar-picker-indicator {
+      cursor: pointer;
+      opacity: 0.6;
+    }
+
+    #tanggalStok::-webkit-calendar-picker-indicator:hover {
+      opacity: 1;
     }
 
     button[type="button"]:not(.input-icon) {
@@ -3360,6 +3414,17 @@
       color: #cc0000;
     }
 
+    /* Active filter row highlight in total sisa table */
+    .total-sisa-container tr.row-filter-active {
+      background-color: #bbdefb !important;
+      border-left: 3px solid #1976d2;
+      box-shadow: inset 0 0 0 1px #90caf9;
+    }
+
+    .total-sisa-container tr.row-filter-active td {
+      color: #1565c0;
+    }
+
     .footer {
       text-align: center;
       padding: 5px;
@@ -3397,22 +3462,11 @@
       display: block;
     }
 
-    /* Scroll Animation Styles — transition-based so it replays every scroll */
-    @keyframes fadeSlideUp {
-      from {
-        opacity: 0;
-        transform: translateY(25px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-
+    /* Scroll Animation Styles — GPU-composited, 60fps */
     .scroll-animate-row {
       opacity: 0;
-      transform: translateY(25px);
-      transition: opacity 0.5s ease, transform 0.5s ease;
+      transform: translateY(20px);
+      transition: opacity 0.35s ease-out, transform 0.35s ease-out;
     }
 
     .scroll-animate-row.visible {
@@ -3759,7 +3813,7 @@
     }
 
     @media (max-width: 768px) {
-      .container {
+      #stokSection, #riwayatStokSection {
         flex-direction: column;
       }
       

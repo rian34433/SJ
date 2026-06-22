@@ -522,6 +522,9 @@ function _markRender(flags) {
                     }
                 }
                     
+                // Invalidate cache after stokData mutation
+                markStockCacheDirty();
+
                 // Batch update UI — semua dalam satu frame
                 _markRender(1|2|4|8|16);
 
@@ -692,6 +695,9 @@ function _markRender(flags) {
                         }
                     }
                     
+                    // Invalidate cache after stokData mutation
+                    markStockCacheDirty();
+
                     // Batch update UI
                     _markRender(1|2|4|8|16);
 
@@ -1368,16 +1374,24 @@ No. Kendaraan: ${noKendaraan}
         // Fungsi untuk menampilkan quick add modal
         function showQuickAddModal() {
             const modal = document.getElementById('quickAddModalOverlay');
-            
+            const modalContent = modal.querySelector('.modal.quick-add');
+
             // Reset form
             document.getElementById('quickAddNamaToko').value = '';
             document.getElementById('quickAddAlamat').value = '';
-            
+
             // Reset ke tab pertama
             showQuickAddTab();
-            
+
             modal.style.display = 'flex';
             document.body.style.overflow = 'hidden';
+
+            // Trigger open animation
+            if (modalContent) {
+                modalContent.classList.remove('modal-closing');
+                modalContent.offsetHeight; // force reflow
+                modalContent.classList.add('modal-open');
+            }
         }
 
         // Fungsi untuk menampilkan tab tambah toko
@@ -1411,8 +1425,21 @@ No. Kendaraan: ${noKendaraan}
         // Fungsi untuk menyembunyikan quick add modal
         function hideQuickAddModal() {
             const modal = document.getElementById('quickAddModalOverlay');
-            modal.style.display = 'none';
-            document.body.style.overflow = 'auto';
+            const modalContent = modal.querySelector('.modal.quick-add');
+            if (modalContent) {
+                modalContent.classList.remove('modal-open');
+                modalContent.classList.add('modal-closing');
+                setTimeout(() => {
+                    if (modalContent.classList.contains('modal-closing')) {
+                        modal.style.display = 'none';
+                        modalContent.classList.remove('modal-closing');
+                        document.body.style.overflow = 'auto';
+                    }
+                }, 250);
+            } else {
+                modal.style.display = 'none';
+                document.body.style.overflow = 'auto';
+            }
         }
 
         // Fungsi untuk menampilkan modal edit toko
@@ -1916,27 +1943,27 @@ No. Kendaraan: ${noKendaraan}
                     console.error('kacaTableBody element not found');
                     return;
                 }
-                
+
                 const rows = tbody.querySelectorAll('tr');
-                
+
                 if (rows.length > 1) {
                     const rowToRemove = rows[rows.length - 1];
 
-                    tbody.removeChild(rowToRemove);
-                    // Update grand total setelah hapus baris
+                    // Animate out then remove
+                    rowToRemove.classList.add('kaca-row-removing');
                     setTimeout(() => {
+                        if (rowToRemove.parentNode) {
+                            tbody.removeChild(rowToRemove);
+                        }
                         updateGrandTotal();
-                    }, 100);
-                    
-                    // Trigger print data refresh if modal is open
-                    const printModal = document.getElementById('printModalOverlay');
-                    if (printModal && printModal.style.display === 'flex') {
-                        setTimeout(() => {
+                        // Trigger print data refresh if modal is open
+                        const printModal = document.getElementById('printModalOverlay');
+                        if (printModal && printModal.style.display === 'flex') {
                             if (typeof refreshPrintData === 'function') {
                                 refreshPrintData();
                             }
-                        }, 100);
-                    }
+                        }
+                    }, 250);
                 } else {
                     alert('Minimal harus ada 1 baris!');
                 }
@@ -2718,6 +2745,7 @@ No. Kendaraan: ${noKendaraan}
         // Print Modal Functions
         function adjustLayoutForSinglePage() {
             const container = document.querySelector('.print-textarea-container');
+            if (!container) return;
             const textElements = container.querySelectorAll('.draggable-text-item');
             
             if (textElements.length === 0) return;
@@ -2792,8 +2820,15 @@ No. Kendaraan: ${noKendaraan}
         // Update the showPrintModal function to add event listeners
         function showPrintModal() {
             const modal = document.getElementById('printModalOverlay');
+            const printModal = modal.querySelector('.print-modal');
             modal.style.display = 'flex';
             document.body.style.overflow = 'hidden';
+            // Trigger open animation
+            if (printModal) {
+                printModal.classList.remove('modal-closing');
+                printModal.offsetHeight; // force reflow
+                printModal.classList.add('modal-open');
+            }
             
             // Load font size preference
             loadFontSizePreference();
@@ -2834,8 +2869,22 @@ No. Kendaraan: ${noKendaraan}
 
         function hidePrintModal() {
             const modal = document.getElementById('printModalOverlay');
-            modal.style.display = 'none';
-            document.body.style.overflow = 'auto';
+            const printModal = modal.querySelector('.print-modal');
+            if (printModal) {
+                printModal.classList.remove('modal-open');
+                printModal.classList.add('modal-closing');
+                setTimeout(() => {
+                    // Only hide if still closing (not re-opened by showPrintModal)
+                    if (printModal.classList.contains('modal-closing')) {
+                        modal.style.display = 'none';
+                        printModal.classList.remove('modal-closing');
+                        document.body.style.overflow = 'auto';
+                    }
+                }, 250);
+            } else {
+                modal.style.display = 'none';
+                document.body.style.overflow = 'auto';
+            }
         }
 
         function refreshPrintData() {
@@ -2849,6 +2898,7 @@ No. Kendaraan: ${noKendaraan}
 
         function validateAndAdjustForSinglePage() {
             const container = document.querySelector('.print-textarea-container');
+            if (!container) return;
             const textElements = container.querySelectorAll('.draggable-text-item');
             
             if (textElements.length === 0) return;
@@ -2886,6 +2936,7 @@ No. Kendaraan: ${noKendaraan}
 
         function debugPositions() {
             const container = document.querySelector('.print-textarea-container');
+            if (!container) return;
             const textElements = container.querySelectorAll('.draggable-text-item');
             
             _log('=== Position Debug ===');
@@ -2913,6 +2964,7 @@ No. Kendaraan: ${noKendaraan}
 
         function showPositionOverlay() {
             const container = document.querySelector('.print-textarea-container');
+            if (!container) return;
             const textElements = container.querySelectorAll('.draggable-text-item');
             
             // Remove existing overlay
@@ -2966,6 +3018,10 @@ No. Kendaraan: ${noKendaraan}
 
         function printNow() {
             const container = document.querySelector('.print-textarea-container');
+            if (!container) {
+                alert('Tidak ada konten untuk dicetak!');
+                return;
+            }
             const textElements = container.querySelectorAll('.draggable-text-item');
 
             if (textElements.length === 0) {
@@ -3003,7 +3059,7 @@ No. Kendaraan: ${noKendaraan}
             printFrame.style.cssText = 'position:absolute;top:-9999px;left:-9999px;width:1px;height:1px;';
             document.body.appendChild(printFrame);
             var printWindow = printFrame.contentWindow;
-            var printDoc = printFrame.contentDocument || printDoc;
+            var printDoc = printFrame.contentDocument || printFrame.contentWindow.document;
             
             // Sort by Y position first, then X position for consistent layout
             positionedTexts.sort((a, b) => {
@@ -3131,9 +3187,6 @@ No. Kendaraan: ${noKendaraan}
                         .print-timestamp {
                             font-weight: ${currentFontWeight};
                         }
-        .print-timestamp {
-            font-weight: ${currentFontWeight};
-        }
                         @media print {
                             @page {
                                 size: 215mm 330mm; /* F4 */
@@ -3610,12 +3663,15 @@ No. Kendaraan: ${noKendaraan}
         
         function handleMouseMove(e) {
             if (!isDragging || !currentDraggedElement) return;
-            
+
             e.preventDefault();
-            
+
             // Use requestAnimationFrame for smooth performance
             requestAnimationFrame(() => {
+                // Guard: element may have been nulled by handleMouseUp
+                if (!currentDraggedElement) return;
                 const container = currentDraggedElement.closest('.print-textarea-container');
+                if (!container) return;
                 const containerRect = container.getBoundingClientRect();
                 // Account for scroll so positions map to full F4 canvas
                 const newX = e.clientX - containerRect.left + container.scrollLeft - dragOffsetX;
@@ -3645,10 +3701,11 @@ No. Kendaraan: ${noKendaraan}
         
         function handleTouchMove(e) {
             if (!isDragging || !currentDraggedElement) return;
-            
+
             e.preventDefault();
             const touch = e.touches[0];
             const container = currentDraggedElement.closest('.print-textarea-container');
+            if (!container) return;
             const containerRect = container.getBoundingClientRect();
             
             // Directly compute new position for touch; include scroll offsets
@@ -3748,6 +3805,7 @@ No. Kendaraan: ${noKendaraan}
 
         function lockPositions() {
             const container = document.querySelector('.print-textarea-container');
+            if (!container) return;
             const textElements = container.querySelectorAll('.draggable-text-item');
             const lockBtn = document.querySelector('.btn-lock-position');
             
@@ -3794,6 +3852,7 @@ No. Kendaraan: ${noKendaraan}
         // Function to preserve user positions more effectively
         function preserveUserPositions() {
             const container = document.querySelector('.print-textarea-container');
+            if (!container) return;
             const textElements = container.querySelectorAll('.draggable-text-item');
             
             if (textElements.length === 0) return;
@@ -4187,13 +4246,13 @@ No. Kendaraan: ${noKendaraan}
         // Function to update column spacing from individual inputs
         function updateColumnSpacing() {
             const newConfig = {
-                jenisKaca: parseInt(document.getElementById('colJenisKaca', 10).value) || 15,
-                pwd: parseInt(document.getElementById('colPwd', 10).value) || 8,
-                noDo: parseInt(document.getElementById('colNoDo', 10).value) || 12,
-                ukuran: parseInt(document.getElementById('colUkuran', 10).value) || 12,
-                box: parseInt(document.getElementById('colBox', 10).value) || 10,
-                lbr: parseInt(document.getElementById('colLbr', 10).value) || 10,
-                totalLbr: parseInt(document.getElementById('colTotalLbr', 10).value) || 12
+                jenisKaca: parseInt(document.getElementById('colJenisKaca').value, 10) || 15,
+                pwd: parseInt(document.getElementById('colPwd').value, 10) || 8,
+                noDo: parseInt(document.getElementById('colNoDo').value, 10) || 12,
+                ukuran: parseInt(document.getElementById('colUkuran').value, 10) || 12,
+                box: parseInt(document.getElementById('colBox').value, 10) || 10,
+                lbr: parseInt(document.getElementById('colLbr').value, 10) || 10,
+                totalLbr: parseInt(document.getElementById('colTotalLbr').value, 10) || 12
             };
             
             // Update column spacing configuration
@@ -4455,8 +4514,8 @@ No. Kendaraan: ${noKendaraan}
             }
         }
 
-        // Make test function globally available
-        window.testKacaData = testKacaData;
+        // Make test function globally available (DEBUG only)
+        if (DEBUG) window.testKacaData = testKacaData;
 
         // Simple function to check TOTAL LBR data quickly
         function quickCheckTotalLBR() {
@@ -4500,8 +4559,8 @@ No. Kendaraan: ${noKendaraan}
             });
         }
 
-        // Make quick check function globally available
-        window.quickCheckTotalLBR = quickCheckTotalLBR;
+        // Make quick check function globally available (DEBUG only)
+        if (DEBUG) window.quickCheckTotalLBR = quickCheckTotalLBR;
 
         // Function to remove header row from kaca data
         function removeHeaderFromKacaData(kacaData) {
@@ -4619,7 +4678,8 @@ No. Kendaraan: ${noKendaraan}
         // New clean version of refreshPrintData (no headers)
         function refreshPrintDataClean() {
             const container = document.querySelector('.print-textarea-container');
-            
+            if (!container) return;
+
             // Clear existing content
             container.innerHTML = '';
             
@@ -4871,8 +4931,8 @@ No. Kendaraan: ${noKendaraan}
             return { kacaData, totalLbrSum, hasHeaders };
         }
         
-        // Make test function globally available
-        window.testNoHeaders = testNoHeaders;
+        // Make test function globally available (DEBUG only)
+        if (DEBUG) window.testNoHeaders = testNoHeaders;
 
         // Input Log System
         let inputLogHistory = [];
@@ -5035,6 +5095,14 @@ No. Kendaraan: ${noKendaraan}
                 const val = (nomor || '').trim();
                 if (!val) return false;
                 return (inputLogHistory || []).some(entry => ((entry.data?.nomorSJ || '').trim() === val));
+            } catch (_) { return false; }
+        }
+
+        // Check if a log entry with given ID still exists in inputLogHistory
+        function isLogEntryAlive(logEntryId) {
+            if (!logEntryId) return false;
+            try {
+                return (inputLogHistory || []).some(entry => String(entry.id) === String(logEntryId));
             } catch (_) { return false; }
         }
 
@@ -7243,10 +7311,21 @@ No. Kendaraan: ${noKendaraan}
 
         // Helper function to group stock data
         // Used by: updateUkuranByJenisKaca, getHargaBeliListWithStock, updateTotalSisa, exportStock
+        let _groupStokDataCache = null;
+        let _groupStokDataCacheLen = -1;
+        let _groupStokDataCacheKey = '';
         function groupStokData(dataArray, filterFn = null) {
             const groupedData = {};
-            
+
             if (!Array.isArray(dataArray)) return groupedData;
+
+            // Cache for unfiltered calls (most common path)
+            if (!filterFn) {
+              const cacheKey = dataArray.length + '-' + isPriceGroupingEnabled;
+              if (_groupStokDataCacheLen === dataArray.length && _groupStokDataCacheKey === cacheKey && _groupStokDataCache) {
+                return _groupStokDataCache;
+              }
+            }
 
             // FIRST PASS: Group by tebal, ukuran, and optionally harga
             dataArray.forEach((entry) => {
@@ -7346,7 +7425,14 @@ No. Kendaraan: ${noKendaraan}
                     finalGroupedData[key] = group;
                 }
             });
-            
+
+            // Store in cache for unfiltered calls
+            if (!filterFn) {
+              _groupStokDataCache = finalGroupedData;
+              _groupStokDataCacheLen = dataArray.length;
+              _groupStokDataCacheKey = dataArray.length + '-' + isPriceGroupingEnabled;
+            }
+
             return finalGroupedData;
         }
 
@@ -7686,8 +7772,8 @@ No. Kendaraan: ${noKendaraan}
             _log('🧪 Auto-fill test completed');
         }
 
-        // Make test function globally available
-        window.testAutoFillKacaData = testAutoFillKacaData;
+        // Make test function globally available (DEBUG only)
+        if (DEBUG) window.testAutoFillKacaData = testAutoFillKacaData;
 
         // Debug function to check auto-fill issue
         function debugAutoFillIssue() {
@@ -7777,7 +7863,7 @@ No. Kendaraan: ${noKendaraan}
             defaultView.style.display = 'block';
             detailedView.style.display = 'none';
           }
-        }, 260);
+        }, 200);
       }
       if (toggleIcon) {
         toggleIcon.textContent = '📋';
@@ -7791,7 +7877,7 @@ No. Kendaraan: ${noKendaraan}
     function openLogDetail(logId) {
       // Close previously opened detail first
       if (currentOpenLogDetailId && currentOpenLogDetailId !== logId) {
-        closeLogDetail(currentOpenLogDetailId, false);
+        closeLogDetail(currentOpenLogDetailId, true);
       }
 
       const detailedView = document.getElementById(`log-detailed-${logId}`);
@@ -7801,11 +7887,11 @@ No. Kendaraan: ${noKendaraan}
       const logEntry = defaultView.closest('.log-entry');
       const toggleIcon = logEntry ? logEntry.querySelector('.log-toggle-icon') : null;
 
-      detailedView.style.display = 'block';
       defaultView.style.display = 'none';
-      requestAnimationFrame(() => {
-        detailedView.classList.add('expanding');
-      });
+      detailedView.style.display = 'block';
+      // Force reflow to ensure animation starts from initial state
+      detailedView.offsetHeight;
+      detailedView.classList.add('expanding');
       if (toggleIcon) {
         toggleIcon.textContent = '📋';
         toggleIcon.style.transform = 'rotate(180deg)';
@@ -7956,8 +8042,8 @@ No. Kendaraan: ${noKendaraan}
             _log('🧪 New log display test completed');
         }
 
-        // Make test function globally available
-        window.testNewLogDisplay = testNewLogDisplay;
+        // Make test function globally available (DEBUG only)
+        if (DEBUG) window.testNewLogDisplay = testNewLogDisplay;
 
         // Test function to verify compact log display
         function testCompactLogDisplay() {
@@ -8061,8 +8147,8 @@ No. Kendaraan: ${noKendaraan}
             _log('🧪 Compact log display test completed');
         }
 
-        // Make test function globally available
-        window.testCompactLogDisplay = testCompactLogDisplay;
+        // Make test function globally available (DEBUG only)
+        if (DEBUG) window.testCompactLogDisplay = testCompactLogDisplay;
 
         // Test function to verify container height matching
         function testContainerHeightMatching() {
@@ -8157,8 +8243,8 @@ No. Kendaraan: ${noKendaraan}
             _log('🧪 Container height matching test completed');
         }
 
-            // Make test function globally available
-            window.testContainerHeightMatching = testContainerHeightMatching;
+            // Make test function globally available (DEBUG only)
+            if (DEBUG) window.testContainerHeightMatching = testContainerHeightMatching;
 
             // Toggle visibility of Log Input History section when header is clicked
             (function initLogHistoryToggle() {
@@ -8483,7 +8569,7 @@ No. Kendaraan: ${noKendaraan}
                     }
 
                     // Periodic refresh — store handle so it can be cleared if needed
-                    window._storageUsageInterval = setInterval(measureAndRender, 10000);
+                    window._storageUsageInterval = setInterval(measureAndRender, 60000);
 
                     // Refresh after localStorage cross-tab updates
                     window.addEventListener('storage', () => measureAndRender());
@@ -8779,12 +8865,24 @@ No. Kendaraan: ${noKendaraan}
           tanggalInput.dispatchEvent(new Event('input', { bubbles: true }));
         }
       }
-      
+
       // Initialize form mode
       setFormMode('pembelian');
-      
+
+      // Tunggu inputLogHistory ter-load agar aliveLogIds akurat saat render
+      // Bypass _logLoadedOnce guard — langsung baca dari storage
+      if (!inputLogHistory || inputLogHistory.length === 0) {
+        try {
+          const saved = (typeof storageManager !== 'undefined' && storageManager.load)
+            ? storageManager.load('inputLogHistory') : null;
+          if (Array.isArray(saved) && saved.length > 0) {
+            inputLogHistory = saved;
+          }
+        } catch (_) {}
+      }
+
       updateStokTable(true);
-      updateTotalSisa();
+      updateTotalSisa(true);
       updateNamaTokoList();
       updateJenisKacaList();
       updateUkuranKacaList();
@@ -9492,13 +9590,19 @@ No. Kendaraan: ${noKendaraan}
       const searchClearBtn = document.getElementById('searchClearBtn');
       const tableBody = document.getElementById("stokTable");
 
-      // Reset active item filter if user manually searches
-      const filterText = activeItemFilter ? `${activeItemFilter.tebal} ${activeItemFilter.ukuran}${(isPriceGroupingEnabled && activeItemFilter.harga !== undefined) ? ` ${activeItemFilter.harga.toLocaleString('id-ID')}` : ''}` : '';
-      if (activeItemFilter && searchTerm !== filterText) {
-        activeItemFilter = null;
-        currentlyReorderingId = null; // Also reset reorder mode
-        updateStokTable(); // Re-render to original state (newest first, all items)
-        // No return here, proceed to filter the newly rendered rows with the new searchTerm
+      // Reset active item filter if user manually types a DIFFERENT search term
+      // (not just re-rendering with the same filter)
+      // Note: do NOT call updateStokTable() here to avoid re-entrant loop
+      // updateStokTable() already calls performSearch() at the end
+      if (activeItemFilter) {
+        const filterText = `${activeItemFilter.tebal} ${activeItemFilter.ukuran}${(isPriceGroupingEnabled && activeItemFilter.harga !== undefined) ? ` ${activeItemFilter.harga.toLocaleString('id-ID')}` : ''}`;
+        // Only clear filter if user actually typed something different AND it's not empty
+        if (searchTerm && searchTerm !== filterText) {
+          activeItemFilter = null;
+          currentlyReorderingId = null;
+          requestAnimationFrame(() => updateStokTable());
+          return;
+        }
       }
       if (!tableBody) {
         _log('❌ stokTable not found');
@@ -9623,6 +9727,9 @@ No. Kendaraan: ${noKendaraan}
       document.getElementById('searchClearBtn').style.display = 'none';
       activeItemFilter = null; // Reset item filter when clearing search
       currentlyReorderingId = null; // Reset reorder mode too
+      // Clear active row highlight in total sisa table
+      const activeRow = document.querySelector('.total-sisa-container tr.row-filter-active');
+      if (activeRow) activeRow.classList.remove('row-filter-active');
       updateStokTable();
       document.getElementById('searchInput').focus();
     }
@@ -9907,11 +10014,7 @@ No. Kendaraan: ${noKendaraan}
           setTimeout(() => document.getElementById('statusBar').style.display = 'none', 2000);
         }
 
-        updateStokTable(true);
-        updateTotalSisa();
-        updateNamaTokoList();
-        updateJenisKacaList();
-        updateUkuranKacaList();
+        _markRender(1|2|4|8|16);
         
         // Update dropdown surat jalan tanpa refresh
         if (typeof updateKacaSuggestionsFromLogs === 'function') {
@@ -9997,6 +10100,9 @@ No. Kendaraan: ${noKendaraan}
     // Tandai cache perlu rebuild
     function markStockCacheDirty() {
       window._stockCacheDirty = true;
+      // Invalidate groupStokData cache
+      _groupStokDataCache = null;
+      _groupStokDataCacheLen = -1;
     }
 
     // Function to calculate current stock at the time of transaction
@@ -10007,6 +10113,11 @@ No. Kendaraan: ${noKendaraan}
     if (!window._parseDateCached) {
       window._parseDateCached = (dateStr) => {
         if (!window._dateCache.has(dateStr)) {
+          // Cap cache at 500 entries to prevent memory leak
+          if (window._dateCache.size > 500) {
+            const firstKey = window._dateCache.keys().next().value;
+            window._dateCache.delete(firstKey);
+          }
           window._dateCache.set(dateStr, new Date(dateStr.split('/').reverse().join('/')));
         }
         return window._dateCache.get(dateStr);
@@ -10190,8 +10301,12 @@ No. Kendaraan: ${noKendaraan}
             if (stokData !== window.stokData) stokData = window.stokData;
           }
 
+          // Invalidate cache because entries were reordered (IDs swapped)
+          markStockCacheDirty();
+
+          // Full re-render without animation (no flicker since scroll-animate-row is suppressed)
+          rebuildStockCache();
           updateStokTable(true);
-          updateTotalSisa();
 
         } catch (err) {
           console.error("Failed to move row:", err);
@@ -10205,6 +10320,7 @@ No. Kendaraan: ${noKendaraan}
       if (String(currentlyReorderingId) === String(id)) {
         currentlyReorderingId = null;
         updateStokTable(true);
+        updateTotalSisa(true); // suppress animation at finish
         showStatus("Urutan manual selesai", "saving");
         setTimeout(() => document.getElementById('statusBar').style.display = 'none', 1500);
       } else {
@@ -10259,10 +10375,24 @@ No. Kendaraan: ${noKendaraan}
                 window.stokData = dataToRestore;
             }
             stokData = dataToRestore;
+            // Persist restored order to IndexedDB — clear then re-add
+            // (moveStokRow swapped entries in DB, add() would fail on duplicate keys)
+            if (db && STORE_NAME) {
+                try {
+                    const tx = db.transaction([STORE_NAME], 'readwrite');
+                    const store = tx.objectStore(STORE_NAME);
+                    store.clear();
+                    for (const entry of dataToRestore) {
+                        if (entry && entry.id) store.put(entry);
+                    }
+                } catch(_) {}
+            }
         }
         currentlyReorderingId = null;
         originalStokDataBeforeReorder = null;
-        updateStokTable();
+        markStockCacheDirty();
+        updateStokTable(true);
+        updateTotalSisa(true);
         // Hide status bar notification when cancelled
         const statusBar = document.getElementById('statusBar');
         if (statusBar) statusBar.style.display = 'none';
@@ -10270,7 +10400,17 @@ No. Kendaraan: ${noKendaraan}
     });
 
     // Function to update Riwayat Stok table
+    let _isUpdatingStokTable = false;
     function updateStokTable(suppressAnimation = false) {
+      if (_isUpdatingStokTable) return; // prevent re-entrant double render
+      _isUpdatingStokTable = true;
+      try {
+        _updateStokTableInner(suppressAnimation);
+      } finally {
+        _isUpdatingStokTable = false;
+      }
+    }
+    function _updateStokTableInner(suppressAnimation = false) {
       const tableHead = document.getElementById("stokTable").getElementsByTagName('thead')[0];
       const tableBody = document.getElementById("stokTable").getElementsByTagName('tbody')[0];
 
@@ -10296,7 +10436,7 @@ No. Kendaraan: ${noKendaraan}
 
       // Use window.stokData if available (for sync with surat jalan), otherwise use local stokData
       // Hindari spread operator penuh — gunakan reference langsung + filter
-      const dataSource = (typeof window !== 'undefined' && window.stokData && Array.isArray(window.stokData))
+      let dataSource = (typeof window !== 'undefined' && window.stokData && Array.isArray(window.stokData))
         ? window.stokData
         : stokData;
 
@@ -10326,8 +10466,10 @@ No. Kendaraan: ${noKendaraan}
       }
 
       // Rebuild stock cache sebelum render (jika dirty)
+      // Always rebuild from full stokData (not filtered dataSource)
+      // because calculateCurrentStock(entry) without data param uses this cache
       if (window._stockCacheDirty) {
-        rebuildStockCache(dataSource);
+        rebuildStockCache();
       }
 
       // Sort logic — gunakan Schwartzian transform: hitung tanggal sekali per item
@@ -10346,11 +10488,16 @@ No. Kendaraan: ${noKendaraan}
         }
       }).map(({ entry }) => entry);
 
+      // Pre-build Set of alive log entry IDs for O(1) lookup during render
+      const aliveLogIds = new Set();
+      (inputLogHistory || []).forEach(e => { if (e && e.id) aliveLogIds.add(String(e.id)); });
+
       // Batch insert menggunakan DocumentFragment untuk mengurangi layout thrashing
       const fragment = document.createDocumentFragment();
       sortedData.forEach((entry, index) => {
-        // Calculate running stock for each entry based on its specific price pool
-        const currentStock = calculateCurrentStock(entry, dataSource);
+        // Always use cache (built from full stokData) for correct running stock
+        // Filtered dataSource should NOT be used — it would miss entries outside filter
+        const currentStock = calculateCurrentStock(entry);
 
         // Determine if this is a pembelian (masuk > 0) or penjualan (keluar > 0)
         // Only show edit button for pembelian entries (masuk > 0)
@@ -10367,8 +10514,9 @@ No. Kendaraan: ${noKendaraan}
 
         const row = document.createElement('tr');
         if (isReordering) row.classList.add('reordering-row');
+        // Skip scroll animation during reorder — all rows rebuild → flash
         if (!suppressAnimation) {
-            row.classList.add('scroll-animate-row');
+          row.classList.add('scroll-animate-row');
         }
 
         row.innerHTML = `
@@ -10395,17 +10543,21 @@ No. Kendaraan: ${noKendaraan}
               <button class="row-action-btn edit-btn" onclick="editEntry('${entry.id}')" title="Edit data pembelian">
                 <i class="fas fa-edit"></i>
               </button>
-              ` : `
+              ` : (entry.logEntryId && aliveLogIds.has(String(entry.logEntryId)) ? `
               <button class="row-action-btn edit-btn" onclick="editLogEntryById('${entry.logEntryId}')" title="Edit penjualan di Log Surat Jalan">
                 <i class="fas fa-edit"></i>
               </button>
-              `}
-              ${isPembelian ? `
-              <button class="row-action-btn delete-btn" onclick="deleteEntry('${entry.id}')" title="Hapus data pembelian">
+              ` : `
+              <button class="row-action-btn edit-btn" style="opacity: 0.4; cursor: not-allowed;" title="Log SJ asal sudah tidak ada — data orphaned">
+                <i class="fas fa-edit"></i>
+              </button>
+              `)}
+              ${isPembelian || !aliveLogIds.has(String(entry.logEntryId)) ? `
+              <button class="row-action-btn delete-btn" onclick="deleteEntry('${entry.id}')" title="${isPembelian ? 'Hapus data pembelian' : 'Hapus data orphaned (log SJ sudah tidak ada)'}">
                 <i class="fas fa-trash"></i>
               </button>
               ` : `
-              <button class="row-action-btn delete-btn" style="display: none;" title="Hapus penjualan dilakukan di log surat jalan">
+              <button class="row-action-btn delete-btn" style="display: none;" title="Hapus penjualan di log surat jalan">
                 <i class="fas fa-trash"></i>
               </button>
               `}
@@ -10418,9 +10570,10 @@ No. Kendaraan: ${noKendaraan}
       // Append semua row sekaligus — 1 reflow, bukan N reflow
       tableBody.appendChild(fragment);
 
-      // Reapply search if there's a search term
+      // Reapply DOM search only when there's NO activeItemFilter
+      // (activeItemFilter is handled at data level above, skip DOM filtering to avoid conflicts)
       const searchInput = document.getElementById('searchInput');
-      if (searchInput && searchInput.value.trim() !== '') {
+      if (searchInput && searchInput.value.trim() !== '' && !activeItemFilter) {
         performSearch();
       }
 
@@ -10451,13 +10604,14 @@ No. Kendaraan: ${noKendaraan}
       }
 
       stokScrollObserver = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
+        for (let i = 0; i < entries.length; i++) {
+          const entry = entries[i];
           if (entry.isIntersecting) {
             entry.target.classList.add('visible');
           } else {
             entry.target.classList.remove('visible');
           }
-        });
+        }
       }, {
         root: container,
         rootMargin: '30px 0px',
@@ -10465,15 +10619,10 @@ No. Kendaraan: ${noKendaraan}
       });
 
       const rows = container.querySelectorAll('tbody tr.scroll-animate-row');
-      // Check initial state immediately
-      rows.forEach(row => {
-        stokScrollObserver.observe(row);
-        const rect = row.getBoundingClientRect();
-        const containerRect = container.getBoundingClientRect();
-        if (rect.top < containerRect.bottom && rect.bottom > containerRect.top) {
-          row.classList.add('visible');
-        }
-      });
+      // observe() triggers initial callback — no need for getBoundingClientRect
+      for (let i = 0; i < rows.length; i++) {
+        stokScrollObserver.observe(rows[i]);
+      }
     }
 
     // IntersectionObserver for scroll animation on jenis table rows
@@ -10488,13 +10637,14 @@ No. Kendaraan: ${noKendaraan}
       }
 
       jenisScrollObserver = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
+        for (let i = 0; i < entries.length; i++) {
+          const entry = entries[i];
           if (entry.isIntersecting) {
             entry.target.classList.add('visible');
           } else {
             entry.target.classList.remove('visible');
           }
-        });
+        }
       }, {
         root: container,
         rootMargin: '30px 0px',
@@ -10502,14 +10652,9 @@ No. Kendaraan: ${noKendaraan}
       });
 
       const rows = container.querySelectorAll('tbody tr.scroll-animate-row');
-      rows.forEach(row => {
-        jenisScrollObserver.observe(row);
-        const rect = row.getBoundingClientRect();
-        const containerRect = container.getBoundingClientRect();
-        if (rect.top < containerRect.bottom && rect.bottom > containerRect.top) {
-          row.classList.add('visible');
-        }
-      });
+      for (let i = 0; i < rows.length; i++) {
+        jenisScrollObserver.observe(rows[i]);
+      }
     }
 
     // IntersectionObserver for scroll animation on log entries
@@ -10524,13 +10669,14 @@ No. Kendaraan: ${noKendaraan}
       }
 
       logScrollObserver = new IntersectionObserver((entries) => {
-        entries.forEach(entry => {
+        for (let i = 0; i < entries.length; i++) {
+          const entry = entries[i];
           if (entry.isIntersecting) {
             entry.target.classList.add('visible');
           } else {
             entry.target.classList.remove('visible');
           }
-        });
+        }
       }, {
         root: container,
         rootMargin: '30px 0px',
@@ -10538,14 +10684,9 @@ No. Kendaraan: ${noKendaraan}
       });
 
       const rows = container.querySelectorAll('.log-entry.scroll-animate-row');
-      rows.forEach(row => {
-        logScrollObserver.observe(row);
-        const rect = row.getBoundingClientRect();
-        const containerRect = container.getBoundingClientRect();
-        if (rect.top < containerRect.bottom && rect.bottom > containerRect.top) {
-          row.classList.add('visible');
-        }
-      });
+      for (let i = 0; i < rows.length; i++) {
+        logScrollObserver.observe(rows[i]);
+      }
     }
 
     // Function to edit an entry
@@ -10579,9 +10720,13 @@ No. Kendaraan: ${noKendaraan}
 
       // Only allow editing for pembelian entries (masuk > 0)
       // For penjualan entries (keluar > 0), editing should be done in log surat jalan
+      // But allow edit if the log entry is orphaned (log SJ already deleted)
       if (entry.keluar > 0 && entry.masuk === 0) {
-        alert('Data penjualan tidak dapat diedit di sini. Silakan edit di log surat jalan.');
-        return;
+        if (entry.logEntryId && isLogEntryAlive(entry.logEntryId)) {
+          alert('Data penjualan tidak dapat diedit di sini. Silakan edit di log surat jalan.');
+          return;
+        }
+        // Orphaned entry — allow edit as pembelian
       }
 
       // Always use pembelian mode
@@ -10656,17 +10801,17 @@ No. Kendaraan: ${noKendaraan}
       }
       
       // Prevent deletion of penjualan entries (keluar > 0, masuk === 0)
-      // Penjualan entries should be deleted from log surat jalan
+      // But allow delete if the log entry is orphaned (log SJ already deleted)
       if (entry.keluar > 0 && entry.masuk === 0) {
-        alert('Data penjualan tidak dapat dihapus di sini. Silakan hapus di log surat jalan.');
-        return;
+        if (entry.logEntryId && isLogEntryAlive(entry.logEntryId)) {
+          alert('Data penjualan tidak dapat dihapus di sini. Silakan hapus di log surat jalan.');
+          return;
+        }
+        // Orphaned entry — allow delete
       }
       
       if (confirm("Apakah Anda yakin ingin menghapus data ini?")) {
         try {
-          // Normalize ID for comparison
-          const normalizedId = String(id);
-
           // Remove from local stokData
           stokData = stokData.filter(entry => String(entry.id) !== normalizedId);
           markStockCacheDirty();
@@ -10680,11 +10825,7 @@ No. Kendaraan: ${noKendaraan}
           await deleteEntryFromDB(id);
           
           // Update UI immediately after deletion
-          updateStokTable(true);
-          updateTotalSisa();
-          updateNamaTokoList();
-          updateJenisKacaList();
-          updateUkuranKacaList();
+          _markRender(1|2|4|8|16);
           
           showStatus("Data berhasil dihapus", "saving");
           setTimeout(() => {
@@ -10695,14 +10836,13 @@ No. Kendaraan: ${noKendaraan}
           console.error('Error deleting entry:', error);
           alert("Terjadi kesalahan saat menghapus data: " + error.message);
           // Still update table even if DB deletion fails
-          updateStokTable(true);
-          updateTotalSisa();
+          _markRender(1|2);
         }
       }
     }
 
     // Function to update Total Sisa per Jenis
-    function updateTotalSisa() {
+    function updateTotalSisa(suppressAnimation = false) {
       const totalSisaTableBody = document.getElementById("jenisTable").getElementsByTagName('tbody')[0];
       
       // Sync local stokData with window.stokData if available
@@ -10723,7 +10863,9 @@ No. Kendaraan: ${noKendaraan}
       const fragment = document.createDocumentFragment();
       sortedData.forEach(({ data }) => {
         const row = document.createElement('tr');
-        row.classList.add('scroll-animate-row');
+        if (!suppressAnimation) {
+          row.classList.add('scroll-animate-row');
+        }
         const sisaValue = data.totalSisa.toLocaleString('id-ID');
         const sisaClass = data.totalSisa < 0 ? 'sisa negative' : 'sisa';
         const sisaStyle = data.totalSisa < 0 ? 'style="color: #dc3545; font-weight: 600;"' : '';
@@ -10740,11 +10882,16 @@ No. Kendaraan: ${noKendaraan}
         // Add click event to fill form fields and filter history
         row.style.cursor = 'pointer';
         row.addEventListener('click', function() {
+          // Highlight active row
+          const allRows = totalSisaTableBody.querySelectorAll('tr');
+          allRows.forEach(r => r.classList.remove('row-filter-active'));
+          row.classList.add('row-filter-active');
+
           // Fill form
           document.getElementById('tebal').value = data.tebal;
           document.getElementById('ukuran').value = data.ukuran;
           if (data.hargaMasuk !== undefined) {
-            document.getElementById('harga').value = data.hargaMasuk;
+            document.getElementById('harga').value = data.hargaMasuk.toLocaleString('id-ID');
           }
           // Perbarui placeholder harga beli dan harga jual sesuai harga beli terpilih
           updateHargaBeliPlaceholder();
@@ -10756,12 +10903,12 @@ No. Kendaraan: ${noKendaraan}
             tebal: data.tebal,
             ukuran: data.ukuran
           };
-          
+
           // Only add price filter if price grouping is enabled and price exists
           if (isPriceGroupingEnabled && data.hargaMasuk !== undefined) {
             activeItemFilter.harga = data.hargaMasuk;
           }
-          
+
           // Update search input to show what's being filtered
           const searchInput = document.getElementById('searchInput');
           if (searchInput) {
@@ -10770,9 +10917,9 @@ No. Kendaraan: ${noKendaraan}
             const searchClearBtn = document.getElementById('searchClearBtn');
             if (searchClearBtn) searchClearBtn.style.display = 'block';
           }
-          
+
           updateStokTable();
-          
+
           // Scroll to history table
           const stokTable = document.getElementById('stokTable');
           if (stokTable) {
@@ -10832,17 +10979,14 @@ No. Kendaraan: ${noKendaraan}
 
           // Clear local arrays
           stokData = [];
+          markStockCacheDirty();
           // Also clear window.stokData if it exists (for sync with surat jalan)
           if (typeof window !== 'undefined' && typeof window.stokData !== 'undefined' && Array.isArray(window.stokData)) {
             window.stokData = [];
           }
           
           // Update all UI components without page refresh
-          updateStokTable(true);
-          updateTotalSisa();
-          updateNamaTokoList();
-          updateJenisKacaList();
-          updateUkuranKacaList();
+          _markRender(1|2|4|8|16);
           clearSearch();
           
           showStatus("Semua data berhasil dihapus", "saving");
@@ -11251,11 +11395,7 @@ No. Kendaraan: ${noKendaraan}
           await loadData();
           
           // Update all UI components without page refresh
-          updateStokTable(true);
-          updateTotalSisa();
-          updateNamaTokoList();
-          updateJenisKacaList();
-          updateUkuranKacaList();
+          _markRender(1|2|4|8|16);
           
           let message = `Berhasil mengimpor ${importedData.length} data`;
           const parts = [];
@@ -11319,6 +11459,7 @@ No. Kendaraan: ${noKendaraan}
 
     // KONFIGURASI: Masukkan URL Web App Google Apps Script Anda di sini
     // #TESTING - sinkronisasi dinonaktifkan sementara
+    // const SCRIPT_URL = ''; // guna testing — uncomment baris di bawah untuk aktifkan sync
     const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyefDcrisPwq9v7QjxgGbUEDXGjQEHKp6lyYlYaX4DgfwmkFcdgZwLOSuLI02R8neF_-Q/exec';
 
     // Function to get aggregated stock data for sync
@@ -11504,6 +11645,8 @@ No. Kendaraan: ${noKendaraan}
 
             if (!this.backend.url || this.backend.url.includes('GANTI_DENGAN')) {
                 _log('⏸️ Sync dinonaktifkan (#TESTING) - SCRIPT_URL kosong.');
+                this.updateStatus('Sync offline', 'offline');
+                setTimeout(() => this.updateStatus('', ''), 3000);
                 return;
             }
 
@@ -11627,6 +11770,9 @@ No. Kendaraan: ${noKendaraan}
                 status.innerHTML = '<i class="fas fa-check-circle"></i> ' + msg;
             } else if (type === 'error') {
                 status.innerHTML = '<i class="fas fa-exclamation-circle"></i> ' + msg;
+            } else if (type === 'offline') {
+                status.innerHTML = '<i class="fas fa-wifi" style="opacity:0.5"></i> ' + msg;
+                status.style.color = 'rgba(255,255,255,0.5)';
             } else {
                 status.textContent = msg;
             }
