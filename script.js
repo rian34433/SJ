@@ -3029,8 +3029,8 @@ No. Kendaraan: ${noKendaraan}
                 return;
             }
 
-            // Show position overlay for debugging
-            showPositionOverlay();
+            // Show position overlay for debugging (DEBUG only)
+            if (DEBUG) showPositionOverlay();
 
             // Capture positions BEFORE any adjustments
             let positionedTexts = [];
@@ -3051,8 +3051,8 @@ No. Kendaraan: ${noKendaraan}
                 }
             });
 
-            // Debug positions before printing
-            debugPositions();
+            // Debug positions before printing (DEBUG only)
+            if (DEBUG) debugPositions();
 
             // Buat iframe tersembunyi untuk print — langsung print dialog, tanpa tab/window baru
             var printFrame = document.createElement('iframe');
@@ -3258,11 +3258,23 @@ No. Kendaraan: ${noKendaraan}
 
             // Print dialog otomatis — setTimeout pendek agar konten sempat di-render
             setTimeout(function() {
-                try { printWindow.print(); } catch (_) {}
-                // Hapus iframe setelah print dialog ditutup
-                setTimeout(function() {
+                try {
+                    printWindow.print();
+                    // Use afterprint event if available, fallback to timeout
+                    if ('onafterprint' in printWindow) {
+                        printWindow.onafterprint = function() {
+                            setTimeout(function() {
+                                try { document.body.removeChild(printFrame); } catch (_) {}
+                            }, 200);
+                        };
+                    } else {
+                        setTimeout(function() {
+                            try { document.body.removeChild(printFrame); } catch (_) {}
+                        }, 1500);
+                    }
+                } catch (_) {
                     try { document.body.removeChild(printFrame); } catch (_) {}
-                }, 1000);
+                }
             }, 300);
         }
 
