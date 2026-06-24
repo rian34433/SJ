@@ -9681,7 +9681,7 @@ No. Kendaraan: ${noKendaraan}
         if (searchTerm && searchTerm !== filterText) {
           activeItemFilter = null;
           currentlyReorderingId = null;
-          requestAnimationFrame(() => updateStokTable());
+          _markRender(1);
           return;
         }
       }
