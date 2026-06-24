@@ -1,7 +1,7 @@
 "use strict";
 // ===== SURAT JALAN JS =====
 // ===== PERFORMANCE: Production DEBUG flag + DOM Cache + Utilities =====
-const DEBUG = false;
+let DEBUG = (localStorage && localStorage.getItem('DEBUG_MODE') === 'true') || false;
 
 // --- DOM Cache: hindari querySelector berulang ---
 const _dom = {};
@@ -16,19 +16,40 @@ function $$(sel, ctx) { return (ctx || document).querySelector(sel); }
 function $$$(sel, ctx) { return (ctx || document).querySelectorAll(sel); }
 
 // --- Smart console: skip evaluation of args saat production ---
-if (!DEBUG) {
-  const _noop = function(){};
-  // Hanya buat log beneran untuk error & warn
-  window._log = _noop;
-  window._debug = _noop;
-  window._info = _noop;
-  console.log = _noop;
-  console.debug = _noop;
-  console.info = _noop;
-} else {
-  window._log = console.log.bind(console, '[LOG]');
-  window._debug = console.debug.bind(console, '[DEBUG]');
-  window._info = console.info.bind(console, '[INFO]');
+(function initDebug() {
+  if (!DEBUG) {
+    const _noop = function(){};
+    window._log = _noop;
+    window._debug = _noop;
+    window._info = _noop;
+    console.log = _noop;
+    console.debug = _noop;
+    console.info = _noop;
+  } else {
+    window._log = console.log.bind(console, '[LOG]');
+    window._debug = console.debug.bind(console, '[DEBUG]');
+    window._info = console.info.bind(console, '[INFO]');
+  }
+
+  // Sync checkbox state after DOM ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', syncDebugCheckbox);
+  } else {
+    syncDebugCheckbox();
+  }
+})();
+
+function toggleDebugMode() {
+  DEBUG = !DEBUG;
+  localStorage.setItem('DEBUG_MODE', DEBUG);
+  location.reload(); // reload agar console stubs diterapkan ulang
+}
+
+function syncDebugCheckbox() {
+  const cb = document.getElementById('debugCheckbox');
+  if (cb) {
+    cb.checked = DEBUG;
+  }
 }
 
 // --- RAF-based style batching: kumpulkan perubahan style lalu flush per frame ---
@@ -6102,28 +6123,33 @@ No. Kendaraan: ${noKendaraan}
                     }
                 }
                 
-                // Delete the log entry
-                inputLogHistory.splice(index, 1);
-                saveInputLogToStorage();
-                renderInputLog();
-                
-                // Delete from backend if configured
+                // Delete from backend BEFORE DOM teardown (button still alive)
                 if (window.syncManager && window.syncManager.backend && logEntryId) {
+                    const btn = document.activeElement;
+                    let originalText;
+                    if (btn && btn.tagName === 'BUTTON') {
+                        originalText = btn.innerHTML;
+                        btn.innerHTML = '⏳...';
+                        btn.disabled = true;
+                    }
                     try {
-                        const btn = document.activeElement;
-                        if (btn && btn.tagName === 'BUTTON') {
-                            const originalText = btn.innerHTML;
-                            btn.innerHTML = '⏳...';
-                            btn.disabled = true;
-                        }
-                        
                         await window.syncManager.backend.deleteLog(logEntryId);
                         _log(`Remote log ${logEntryId} deleted.`);
                     } catch (e) {
                         console.error(`Failed to delete remote log ${logEntryId}:`, e);
                         alert('Log dihapus dari lokal, tetapi GAGAL dihapus dari server: ' + e.message);
+                    } finally {
+                        if (btn && btn.tagName === 'BUTTON') {
+                            btn.innerHTML = originalText || 'Hapus';
+                            btn.disabled = false;
+                        }
                     }
                 }
+
+                // Delete the log entry (DOM destroyed — renderInputLog rebuilds it)
+                inputLogHistory.splice(index, 1);
+                saveInputLogToStorage();
+                renderInputLog();
 
                 alert('Log berhasil dihapus.');
             }
@@ -8601,7 +8627,7 @@ No. Kendaraan: ${noKendaraan}
     let currentlyEditingId = null;
     let db = null;
     const DB_NAME = 'StokKacaDB';
-    const DB_VERSION = 2;
+    const DB_VERSION = 3;
     const STORE_NAME = 'stokData';
     // Flag to prevent auto-overwrite when user mengisi harga beli/manual
     let hargaManualOverride = false;
@@ -8680,8 +8706,21 @@ No. Kendaraan: ${noKendaraan}
           const request = store.getAll();
 
           request.onsuccess = () => {
-            stokData = request.result || [];
-            window.stokData = stokData; 
+            const raw = request.result || [];
+            // Dedup by ID — jaga-jaga kalo ada duplikat di IndexedDB
+            const seen = new Set();
+            stokData = [];
+            for (const item of raw) {
+              const key = item.id !== undefined ? String(item.id) : JSON.stringify(item);
+              if (!seen.has(key)) {
+                seen.add(key);
+                stokData.push(item);
+              }
+            }
+            if (stokData.length !== raw.length) {
+              _log('⚠️ loadData: dibersihkan', raw.length - stokData.length, 'duplikat by ID');
+            }
+            window.stokData = stokData;
             _log('Data loaded:', stokData.length, 'entries');
             if (typeof updateKacaSuggestionsFromLogs === 'function') updateKacaSuggestionsFromLogs();
             resolve(stokData);
@@ -8735,7 +8774,9 @@ No. Kendaraan: ${noKendaraan}
             const item = stokData.find(e => String(e.id) === String(id));
             if (!item) {
               // Item dihapus — hapus dari store juga
-              const req = store.delete(String(id));
+              // Konversi ke number untuk match IndexedDB key (semua ID numeric)
+              const deleteKey = (typeof id === 'string' && !isNaN(Number(id))) ? Number(id) : id;
+              const req = store.delete(deleteKey);
               req.onsuccess = () => { completed++; if (completed === total && !hasError) resolve(); };
               req.onerror = () => { if (!hasError) { hasError = true; reject(req.error); } };
             } else {
@@ -8836,7 +8877,9 @@ No. Kendaraan: ${noKendaraan}
         return new Promise((resolve, reject) => {
           const transaction = db.transaction([STORE_NAME], 'readwrite');
           const store = transaction.objectStore(STORE_NAME);
-          const request = store.delete(id);
+          // Konversi id ke number untuk match key di IndexedDB (semua ID numeric)
+          const key = (typeof id === 'string' && !isNaN(Number(id))) ? Number(id) : id;
+          const request = store.delete(key);
 
           request.onsuccess = () => {
             resolve();
@@ -9412,14 +9455,16 @@ No. Kendaraan: ${noKendaraan}
               
               // Skip hidden fields based on form mode
               if (currentFormMode === 'pembelian' && (inputId === 'hargaJual' || inputId === 'keluar')) {
+                e.stopImmediatePropagation();
                 tambahData();
                 return;
               }
               if (currentFormMode === 'penjualan' && (inputId === 'harga' || inputId === 'masuk')) {
+                e.stopImmediatePropagation();
                 tambahData();
                 return;
               }
-              
+
               // Special handling for "masuk" field
               if (inputId === 'masuk') {
                 const stokForm = document.getElementById('stokForm');
@@ -9427,25 +9472,27 @@ No. Kendaraan: ${noKendaraan}
                 const keluarInput = stokForm ? stokForm.querySelector('#keluar') : null;
                 const masukValue = masukInput ? masukInput.value : '';
                 const keluarValue = keluarInput ? keluarInput.value : '';
-                
+
                 // If masuk has value and keluar is empty, skip keluar and submit
                 if (masukValue && masukValue > 0 && (!keluarValue || keluarValue == 0)) {
+                  e.stopImmediatePropagation(); // Cegah bubble ke listener lain
                   tambahData();
                   return;
                 }
               }
-              
+
               // Find next visible input - hanya di form stok
               const stokForm = document.getElementById('stokForm');
               if (!stokForm) {
+                e.stopImmediatePropagation();
                 tambahData();
                 return;
               }
-              
+
               let nextIndex = index + 1;
               while (nextIndex < formInputs.length) {
                 const nextInputId = formInputs[nextIndex];
-                
+
                 // Gunakan querySelector dari stokForm dengan selector yang lebih spesifik
                 let nextInput = null;
                 if (nextInputId === 'tanggal') {
@@ -9500,6 +9547,7 @@ No. Kendaraan: ${noKendaraan}
               }
               
               // If no next visible input found, submit form
+              e.stopImmediatePropagation();
               tambahData();
             }
           });
@@ -9790,8 +9838,35 @@ No. Kendaraan: ${noKendaraan}
       }
     }
 
+    // Guard: cegah double submit saat proses masih jalan
+    let _isSubmitting = false;
+
+    // Reset submit button ke state awal
+    function _resetSubmitBtn() {
+      _isSubmitting = false;
+      const btn = document.getElementById('submitBtn');
+      if (btn) {
+        btn.disabled = false;
+        btn.textContent = 'Tambah Data';
+      }
+    }
+
     // Function to add or update data
     async function tambahData() {
+      // Cegah re-entry kalo masih proses
+      if (_isSubmitting) {
+        _log('⏳ tambahData masih proses, skip double call');
+        return;
+      }
+      _isSubmitting = true;
+
+      // Disable submit button biar user gak klik 2x
+      const submitBtn = document.getElementById('submitBtn');
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Menyimpan...';
+      }
+
       const nama = document.getElementById("nama").value.trim();
       const tanggal = document.getElementById("tanggalStok").value;
       const nota = document.getElementById("nota").value.trim();
@@ -9806,6 +9881,7 @@ No. Kendaraan: ${noKendaraan}
 
       if (!nama || !tanggal || !nota || !tebal || !ukuran) {
         alert("Semua field harus diisi !");
+        _resetSubmitBtn();
         return;
       }
 
@@ -9813,11 +9889,13 @@ No. Kendaraan: ${noKendaraan}
       if (currentFormMode === 'pembelian') {
         if (masuk === 0) {
           alert("Harap isi jumlah kaca masuk!");
+          _resetSubmitBtn();
           return;
         }
       } else {
         if (keluar === 0) {
           alert("Harap isi jumlah kaca keluar!");
+          _resetSubmitBtn();
           return;
         }
       }
@@ -9979,7 +10057,7 @@ No. Kendaraan: ${noKendaraan}
             // Incremental save — tandai ID yang berubah saja
             _markDirty(updatedEntry.id);
             if (typeof saveData === 'function') {
-              saveData().catch(function() {});
+              await saveData().catch(function(e) { console.warn('saveData after update:', e); });
             }
             showStatus("Data berhasil diupdate", "saving");
             setTimeout(() => {
@@ -9997,8 +10075,17 @@ No. Kendaraan: ${noKendaraan}
           cancelEdit();
         } else {
           // Add new entry
+          const newId = Date.now();
+
+          // Last-line defense: cek apakah entry persis sama udah ada (by ID)
+          if (stokData.some(e => String(e.id) === String(newId))) {
+            _log('⚠️ Duplicate ID detected, skip');
+            _resetSubmitBtn();
+            return;
+          }
+
           const newEntry = {
-            id: Date.now(),
+            id: newId,
             nama, 
             tanggal: formattedDate, 
             nota, 
@@ -10011,16 +10098,15 @@ No. Kendaraan: ${noKendaraan}
           };
           stokData.unshift(newEntry);
           markStockCacheDirty();
-          // Sync dengan window.stokData untuk surat jalan
-          if (typeof window.stokData !== 'undefined' && Array.isArray(window.stokData)) {
+          // Sync dengan window.stokData — hindari double entry
+          // saat stokData dan window.stokData adalah reference array yang sama
+          if (stokData !== window.stokData) {
             window.stokData.unshift(newEntry);
-          } else {
-            window.stokData = stokData;
           }
           await addEntry(newEntry);
           _markDirty(newEntry.id);
           if (typeof saveData === 'function') {
-            saveData().catch(function() {});
+            await saveData().catch(function(e) { console.warn('saveData after add:', e); });
           }
           showStatus("Data berhasil ditambahkan", "saving");
           setTimeout(() => document.getElementById('statusBar').style.display = 'none', 2000);
@@ -10048,6 +10134,8 @@ No. Kendaraan: ${noKendaraan}
       } catch (error) {
         console.error('Error in tambahData:', error);
         alert("Terjadi kesalahan saat menyimpan data: " + error.message);
+      } finally {
+        _resetSubmitBtn();
       }
     }
 
@@ -11470,9 +11558,9 @@ No. Kendaraan: ${noKendaraan}
     // --- Google Apps Script Integration ---
 
     // KONFIGURASI: Masukkan URL Web App Google Apps Script Anda di sini
-    // #TESTING - sinkronisasi dinonaktifkan sementara
-    // const SCRIPT_URL = ''; // guna testing — uncomment baris di bawah untuk aktifkan sync
-    const SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyefDcrisPwq9v7QjxgGbUEDXGjQEHKp6lyYlYaX4DgfwmkFcdgZwLOSuLI02R8neF_-Q/exec';
+    // Sync otomatis nonaktif saat DEBUG=true (testing), aktif saat DEBUG=false (production)
+    const SCRIPT_URL = DEBUG ? '' : 'https://script.google.com/macros/s/AKfycbzVJmtqpkMzFc5Fb2OF-bhow_PGLKbkMxDaASRaK1GjSIorf1JAghxZGgHPQVPCQnvDqg/exec';
+    const SCRIPT_TOKEN = '083819114977'; // token auth — ganti kalo beda
 
     // Function to get aggregated stock data for sync
     function getAggregatedStockData() {
@@ -11502,8 +11590,17 @@ No. Kendaraan: ${noKendaraan}
     }
 
     class BackendService {
-      constructor(url) {
+      constructor(url, token) {
         this.url = url;
+        this.token = token;
+      }
+
+      _buildUrl(action) {
+        return `${this.url}?action=${action}&token=${this.token}`;
+      }
+
+      isConfigured() {
+        return !!this.url && !!this.token && !this.url.includes('GANTI_DENGAN');
       }
 
       async getStock() {
@@ -11551,9 +11648,9 @@ No. Kendaraan: ${noKendaraan}
       }
 
       async _fetch(action) {
-        if (!this.url || this.url.includes('GANTI_DENGAN')) return null;
+        if (!this.isConfigured()) return null;
         try {
-            const response = await fetch(`${this.url}?action=${action}`);
+            const response = await fetch(this._buildUrl(action));
             const text = await response.text();
             let result;
             try {
@@ -11578,14 +11675,14 @@ No. Kendaraan: ${noKendaraan}
       }
 
       async _postWithRetry(action, payload, maxRetries = 2) {
-        if (!this.url || this.url.includes('GANTI_DENGAN')) return null;
+        if (!this.isConfigured()) return null;
         
         let attempt = 0;
         let lastError;
         
         while (attempt <= maxRetries) {
             try {
-                const response = await fetch(`${this.url}?action=${action}`, {
+                const response = await fetch(this._buildUrl(action), {
                     method: 'POST',
                     body: JSON.stringify(payload)
                 });
@@ -11626,7 +11723,7 @@ No. Kendaraan: ${noKendaraan}
         }
 
         async clearRemoteData(target) {
-             if (!this.backend.url || this.backend.url.includes('GANTI_DENGAN')) return;
+             if (!this.backend.isConfigured()) return;
              try {
                  this.updateStatus('Menghapus data di server...', 'syncing');
                  await this.backend.clearData(target);
@@ -11640,7 +11737,7 @@ No. Kendaraan: ${noKendaraan}
 
         async deleteRemoteStockEntries(ids) {
             if (!ids || ids.length === 0) return;
-            if (!this.backend.url || this.backend.url.includes('GANTI_DENGAN')) return;
+            if (!this.backend.isConfigured()) return;
             try {
                 this.updateStatus('Menghapus stok di server...', 'syncing');
                 await this.backend.deleteStockEntries(ids);
@@ -11655,8 +11752,8 @@ No. Kendaraan: ${noKendaraan}
         async syncAll() {
             if (this.isSyncing) return;
 
-            if (!this.backend.url || this.backend.url.includes('GANTI_DENGAN')) {
-                _log('⏸️ Sync dinonaktifkan (#TESTING) - SCRIPT_URL kosong.');
+            if (!this.backend.isConfigured()) {
+                _log('⏸️ Sync dinonaktifkan (DEBUG mode).');
                 this.updateStatus('Sync offline', 'offline');
                 setTimeout(() => this.updateStatus('', ''), 3000);
                 return;
@@ -11792,7 +11889,7 @@ No. Kendaraan: ${noKendaraan}
     }
 
     // Init
-    const backendService = new BackendService(SCRIPT_URL);
+    const backendService = new BackendService(SCRIPT_URL, SCRIPT_TOKEN);
     const syncManager = new SyncManager(backendService);
     window.syncManager = syncManager; // Make globally available
 

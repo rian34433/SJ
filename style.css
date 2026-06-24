@@ -3373,6 +3373,12 @@
       background-color: #3e8e41;
     }
 
+    button[type="button"]:not(.input-icon):disabled {
+      background-color: #9e9e9e;
+      cursor: not-allowed;
+      opacity: 0.7;
+    }
+
     table {
       width: 100%;
       border-collapse: collapse;
@@ -3426,11 +3432,73 @@
     }
 
     .footer {
-      text-align: center;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       padding: 5px;
       background-color: #4a6fa5;
       color: white;
       margin-top: 20px;
+      position: relative;
+    }
+
+    .footer-left {
+      position: absolute;
+      left: 8px;
+      top: 50%;
+      transform: translateY(-50%);
+    }
+
+    .footer-center {
+      text-align: center;
+    }
+
+    .debug-toggle {
+      display: flex;
+      align-items: center;
+      gap: 4px;
+      cursor: pointer;
+      user-select: none;
+      font-size: 11px;
+      font-weight: bold;
+      color: rgba(255,255,255,0.6);
+    }
+
+    .debug-toggle input {
+      display: none;
+    }
+
+    .debug-toggle .toggle-slider {
+      width: 28px;
+      height: 14px;
+      background: rgba(255,255,255,0.25);
+      border-radius: 7px;
+      position: relative;
+      transition: background 0.2s;
+    }
+
+    .debug-toggle .toggle-slider::after {
+      content: '';
+      width: 10px;
+      height: 10px;
+      background: #fff;
+      border-radius: 50%;
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      transition: transform 0.2s;
+    }
+
+    .debug-toggle input:checked + .toggle-slider {
+      background: #4caf50;
+    }
+
+    .debug-toggle input:checked + .toggle-slider::after {
+      transform: translateX(14px);
+    }
+
+    .debug-toggle.active .debug-label {
+      color: #4caf50;
     }
 
     .footer a {
