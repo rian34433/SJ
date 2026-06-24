@@ -42,7 +42,28 @@ function $$$(sel, ctx) { return (ctx || document).querySelectorAll(sel); }
 function toggleDebugMode() {
   DEBUG = !DEBUG;
   localStorage.setItem('DEBUG_MODE', DEBUG);
-  location.reload(); // reload agar console stubs diterapkan ulang
+
+  // Re-init stubs tanpa reload
+  if (DEBUG) {
+    window._log = console.debug.bind(console, '[LOG]');
+    window._debug = console.debug.bind(console, '[DEBUG]');
+    window._info = console.info.bind(console, '[INFO]');
+  } else {
+    const _noop = function(){};
+    window._log = _noop;
+    window._debug = _noop;
+    window._info = _noop;
+  }
+
+  // Sync checkbox
+  syncDebugCheckbox();
+
+  // Show status biar user tau berubah
+  showStatus('DEBUG ' + (DEBUG ? 'ON' : 'OFF'), 'saving');
+  setTimeout(() => {
+    const sb = document.getElementById('statusBar');
+    if (sb) sb.style.display = 'none';
+  }, 2000);
 }
 
 function syncDebugCheckbox() {
