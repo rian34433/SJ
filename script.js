@@ -10133,13 +10133,6 @@ No. Kendaraan: ${noKendaraan}
           setTimeout(() => document.getElementById('statusBar').style.display = 'none', 2000);
         }
 
-        _markRender(1|2|4|8|16);
-        
-        // Update dropdown surat jalan tanpa refresh
-        if (typeof updateKacaSuggestionsFromLogs === 'function') {
-          updateKacaSuggestionsFromLogs();
-        }
-        
         // Reset form
         document.getElementById("stokForm").reset();
         document.getElementById("tanggalStok").value = new Date().toISOString().split('T')[0];
@@ -10523,6 +10516,8 @@ No. Kendaraan: ${noKendaraan}
     // Function to update Riwayat Stok table
     let _isUpdatingStokTable = false;
     function updateStokTable(suppressAnimation = false) {
+      // If batch render already queued for stokTable, skip direct call
+      if (_needsStokTable) return;
       if (_isUpdatingStokTable) return; // prevent re-entrant double render
       _isUpdatingStokTable = true;
       try {
@@ -10964,6 +10959,8 @@ No. Kendaraan: ${noKendaraan}
 
     // Function to update Total Sisa per Jenis
     function updateTotalSisa(suppressAnimation = false) {
+      // If batch render already queued for totalSisa, skip direct call
+      if (_needsTotalSisa) return;
       const totalSisaTableBody = document.getElementById("jenisTable").getElementsByTagName('tbody')[0];
       
       // Sync local stokData with window.stokData if available
